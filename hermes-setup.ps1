@@ -44,7 +44,9 @@ param(
     [switch]$Yolo,
     [string]$Model,
     [switch]$SkipInstall,
-    [switch]$SkipDocs
+    [switch]$SkipDocs,
+    [switch]$SelectorOnly,
+    [switch]$SchedulerOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,6 +133,25 @@ function Get-SelectorScript {
     }
     Write-Ok "selector downloaded to $dest"
     return $dest
+}
+
+# --- SchedulerOnly: just register the daily task and exit --------------------
+if ($SchedulerOnly) {
+    $schedulerScript = Join-Path $PSScriptRoot 'Set-ModelSelectorTask.ps1'
+    if (-not (Test-Path -LiteralPath $schedulerScript -PathType Leaf)) {
+        throw "Scheduler registration script not found: $schedulerScript"
+    }
+    & $schedulerScript
+    return
+}
+
+# --- SelectorOnly: skip install/auth, just run the selector ------------------
+if ($SelectorOnly) {
+    if (-not (Test-Hermes)) { throw "hermes not on PATH. Install it first or run without -SelectorOnly." }
+    $runSelector = $true
+    $SkipInstall = $true
+    $SkipDocs = $true
+    goto Selector
 }
 
 # --- 1. platform ------------------------------------------------------------
@@ -256,6 +277,7 @@ if (-not $Yolo) {
     $runSelector = ($sel -ne 'n')
 }
 
+Selector:
 if ($runSelector) {
     Write-Step "Model selector (live probe of the free tier)"
     # The venv lives inside the hermes install dir. Derive it from HERMES_HOME,
