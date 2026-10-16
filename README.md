@@ -20,15 +20,9 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 | `& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1).Content)) -SelectorOnly` | Just run the model selector |
 | `& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1).Content)) -SchedulerOnly` | Register the daily scheduled task |
 
-## Execution policy bypass
+## Execution policy
 
-If you get `cannot be loaded because running scripts is disabled on this system`, wrap with `-ExecutionPolicy Bypass`:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1').Content)) -Yolo"
-```
-
-This works from cmd.exe or a restricted PowerShell session. The outer `powershell` process is exempt from the execution policy; the `-Command` payload runs with `Bypass` inside it.
+No special handling needed. The scriptblock pattern (`[scriptblock]::Create(...)`) downloads the script as a string and executes it in-memory — it never touches a `.ps1` file on disk, so execution policy doesn't apply. It works from PowerShell (any execution policy), cmd.exe, or Windows Terminal without modification.
 
 ## Why `& ([scriptblock]::Create(...))` instead of `iwr | iex`?
 
