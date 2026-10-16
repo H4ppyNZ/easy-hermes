@@ -22,7 +22,30 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 
 ## Execution policy
 
-No special handling needed. The scriptblock pattern (`[scriptblock]::Create(...)`) downloads the script as a string and executes it in-memory — it never touches a `.ps1` file on disk, so execution policy doesn't apply. It works from PowerShell (any execution policy), cmd.exe, or Windows Terminal without modification.
+If you get `cannot be loaded because running scripts is disabled on this system`, your execution policy is set to `Restricted` (the Windows default). The scriptblock pattern is still subject to execution policy — it applies to all PowerShell execution, not just `.ps1` files on disk.
+
+**Temporary bypass (recommended):** Open PowerShell and run:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+```
+
+This lasts only for the current window. Close the window and you're back to normal. Then run the one-liner in that same window.
+
+**Persistent change:** If you want it to stick for your user account:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
+```
+
+**To revert** either change:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Restricted -Scope Process      # revert process-scope
+Set-ExecutionPolicy -ExecutionPolicy Undefined -Scope CurrentUser    # revert user-scope
+```
+
+`Restricted` is the Windows default; `Undefined` also resolves to it but clears your explicit override.
 
 ## Why `& ([scriptblock]::Create(...))` instead of `iwr | iex`?
 
