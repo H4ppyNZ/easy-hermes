@@ -275,6 +275,16 @@ if ($runSelector) {
         throw "venv python not found (tried: $($pyCandidates -join ', ')). The selector cannot run without it -- install hermes first, or re-run with -SkipInstall once 'hermes' is on PATH."
     }
     Write-Ok "selector python: $py"
+    # Ensure PyYAML is available in the venv (the selector imports yaml)
+    $yamlCheck = & $py -c "import yaml" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Info "Installing pyyaml into the venv..."
+        & $py -m pip install pyyaml 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install pyyaml. The selector cannot run without it."
+        }
+        Write-Ok "pyyaml installed"
+    }
     $selectorPy = Get-SelectorScript
     # Belt and braces: the script reconfigures its own stdout at import,
     # but a caller without this env var used to crash it under cp1252.
