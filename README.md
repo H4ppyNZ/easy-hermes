@@ -20,6 +20,16 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 | `& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1).Content)) -SelectorOnly` | Just run the model selector |
 | `& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1).Content)) -SchedulerOnly` | Register the daily scheduled task |
 
+## Execution policy bypass
+
+If you get `cannot be loaded because running scripts is disabled on this system`, wrap with `-ExecutionPolicy Bypass`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1').Content)) -Yolo"
+```
+
+This works from cmd.exe or a restricted PowerShell session. The outer `powershell` process is exempt from the execution policy; the `-Command` payload runs with `Bypass` inside it.
+
 ## Why `& ([scriptblock]::Create(...))` instead of `iwr | iex`?
 
 `iwr | iex` executes the downloaded script but **cannot pass parameters** to it — `-Yolo` would go to `iex`, not the script. The scriptblock cast pattern downloads the content and invokes it as a scriptblock, so parameters bind correctly.
