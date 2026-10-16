@@ -95,7 +95,7 @@ $HermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:L
 # Where hermes-model-selector.py is fetched from when it is not sitting next to
 # this script. Set this to your fork's raw URL once the repo is public -- pin
 # the branch, because a moving 'main' can change under people mid-install.
-$SelectorUrl = 'https://raw.githubusercontent.com/<you>/easy-hermes/main/hermes-model-selector.py'
+$SelectorUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-model-selector.py'
 
 
 function Get-SelectorScript {
