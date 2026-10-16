@@ -105,8 +105,8 @@ function Get-SelectorScript {
     # nothing is on disk. Always returns a path that exists and parses.
     param([string]$FallbackUrl = $SelectorUrl)
 
-    $sibling = Join-Path $PSScriptRoot 'hermes-model-selector.py'
-    if ($PSScriptRoot -and (Test-Path -LiteralPath $sibling)) {
+    $sibling = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'hermes-model-selector.py' } else { $null }
+    if ($sibling -and (Test-Path -LiteralPath $sibling)) {
         Write-Ok "selector: $sibling"
         return $sibling
     }
