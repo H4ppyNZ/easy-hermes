@@ -309,8 +309,8 @@ if ($runSelector) {
         if ($candidate -like '*WindowsApps*') { continue }
         if (-not (Test-Path -LiteralPath $candidate)) { continue }
         # Test if this python actually works (not a Store stub)
-        $testResult = & $candidate --version 2>&1
-        if ($LASTEXITCODE -eq 0 -and $testResult -match 'Python \d+\.\d+') {
+        $testResult = & $candidate -c "print('ok')" 2>&1
+        if ($LASTEXITCODE -eq 0 -and $testResult -match 'ok') {
             $py = $candidate
             break
         }
