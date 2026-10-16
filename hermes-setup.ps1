@@ -319,16 +319,17 @@ if ($runSelector) {
         $pyErrors += "    $candidate -> exit $LASTEXITCODE : $testResult"
     }
     if (-not $py) {
+        $nl = [Environment]::NewLine
         $errMsg = "No working Python found. The selector cannot run without it."
         if ($pyErrors.Count -gt 0) {
-            $errMsg += "`nWhat was tried:`n$($pyErrors -join \"`n\")"
+            $errMsg += $nl + "What was tried:" + $nl + ($pyErrors -join $nl)
         }
-        $errMsg += "`nSuggestions:"
-        $errMsg += "`n  1. Run 'hermes doctor' to check your Hermes installation"
-        $errMsg += "`n  2. Try reinstalling: hermes update --yes"
-        $errMsg += "`n  3. If you have Python installed elsewhere, run the selector manually:"
-        $errMsg += "`n     & 'C:\path\to\python.exe' hermes-model-selector.py --hermes-home \"$HermesHome\""
-        $errMsg += "`n  4. Ask for help: https://github.com/H4ppyNZ/easy-hermes/issues"
+        $errMsg += $nl + "Suggestions:"
+        $errMsg += $nl + "  1. Run 'hermes doctor' to check your Hermes installation"
+        $errMsg += $nl + "  2. Try reinstalling: hermes update --yes"
+        $errMsg += $nl + "  3. If you have Python installed elsewhere, run the selector manually:"
+        $errMsg += $nl + "     & 'C:\path\to\python.exe' hermes-model-selector.py --hermes-home '$HermesHome'"
+        $errMsg += $nl + "  4. Ask for help: https://github.com/H4ppyNZ/easy-hermes/issues"
         throw $errMsg
     }
     Write-Ok "selector python: $py"
