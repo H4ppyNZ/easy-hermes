@@ -305,6 +305,7 @@ if ($runSelector) {
     }
     # Filter out WindowsApps stub and validate each candidate actually runs
     $py = $null
+    $pyErrors = @()
     foreach ($candidate in $pyCandidates) {
         if ($candidate -like '*WindowsApps*') { continue }
         if (-not (Test-Path -LiteralPath $candidate)) { continue }
@@ -314,9 +315,20 @@ if ($runSelector) {
             $py = $candidate
             break
         }
+        $pyErrors += "    $candidate -> exit $LASTEXITCODE : $testResult"
     }
     if (-not $py) {
-        throw "No working Python found (tried: $($pyCandidates -join ', ')). The selector cannot run without it -- install hermes first, or re-run with -SkipInstall once 'hermes' is on PATH."
+        $errMsg = "No working Python found. The selector cannot run without it."
+        if ($pyErrors.Count -gt 0) {
+            $errMsg += "`nWhat was tried:`n$($pyErrors -join \"`n\")"
+        }
+        $errMsg += "`nSuggestions:"
+        $errMsg += "`n  1. Run 'hermes doctor' to check your Hermes installation"
+        $errMsg += "`n  2. Try reinstalling: hermes update --yes"
+        $errMsg += "`n  3. If you have Python installed elsewhere, run the selector manually:"
+        $errMsg += "`n     & 'C:\path\to\python.exe' hermes-model-selector.py --hermes-home \"$HermesHome\""
+        $errMsg += "`n  4. Ask for help: https://github.com/H4ppyNZ/easy-hermes/issues"
+        throw $errMsg
     }
     Write-Ok "selector python: $py"
     # Ensure PyYAML is available in the venv (the selector imports yaml)
