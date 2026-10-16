@@ -303,9 +303,20 @@ if ($runSelector) {
     if ($pyOnPath -and $pyOnPath.Source -and $pyOnPath.Source -notlike '*WindowsApps*') {
         $pyCandidates += $pyOnPath.Source
     }
-    $py = $pyCandidates | Where-Object { Test-Path -LiteralPath $_ -and $_ -notlike '*WindowsApps*' } | Select-Object -First 1
+    # Filter out WindowsApps stub and validate each candidate actually runs
+    $py = $null
+    foreach ($candidate in $pyCandidates) {
+        if ($candidate -like '*WindowsApps*') { continue }
+        if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        # Test if this python actually works (not a Store stub)
+        $testResult = & $candidate --version 2>&1
+        if ($LASTEXITCODE -eq 0 -and $testResult -match 'Python \d+\.\d+') {
+            $py = $candidate
+            break
+        }
+    }
     if (-not $py) {
-        throw "venv python not found (tried: $($pyCandidates -join ', ')). The selector cannot run without it -- install hermes first, or re-run with -SkipInstall once 'hermes' is on PATH."
+        throw "No working Python found (tried: $($pyCandidates -join ', ')). The selector cannot run without it -- install hermes first, or re-run with -SkipInstall once 'hermes' is on PATH."
     }
     Write-Ok "selector python: $py"
     # Ensure PyYAML is available in the venv (the selector imports yaml)
