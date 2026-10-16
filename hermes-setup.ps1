@@ -267,8 +267,18 @@ if ($runSelector) {
     )
     $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
     if ($hermesCmd -and $hermesCmd.Source) {
+        $hermesDir = Split-Path $hermesCmd.Source -Parent
         # venv\Scripts\hermes -> venv\Scripts\python.exe (same dir on Windows)
-        $pyCandidates += (Join-Path (Split-Path $hermesCmd.Source -Parent) 'python.exe')
+        $pyCandidates += (Join-Path $hermesDir 'python.exe')
+        # bin\hermes -> ..\hermes-agent\venv\Scripts\python.exe (sibling venv)
+        $pyCandidates += (Join-Path (Split-Path $hermesDir -Parent) 'hermes-agent\venv\Scripts\python.exe')
+        # bin\hermes -> ..\venv\Scripts\python.exe (venv next to bin)
+        $pyCandidates += (Join-Path (Split-Path $hermesDir -Parent) 'venv\Scripts\python.exe')
+    }
+    # Last resort: python on PATH (may not have yaml, but we'll try)
+    $pyOnPath = Get-Command python -ErrorAction SilentlyContinue
+    if ($pyOnPath -and $pyOnPath.Source) {
+        $pyCandidates += $pyOnPath.Source
     }
     $py = $pyCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $py) {
