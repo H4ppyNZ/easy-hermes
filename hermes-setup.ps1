@@ -355,7 +355,80 @@ if (-not (Get-CurrentDefault)) {
     Write-Ok "model.default -> $(Get-CurrentDefault)"
 }
 
-# --- 6. optional extras -----------------------------------------------------
+# --- 6. connectors ----------------------------------------------------------
+# Hermes can connect to messaging platforms (Discord, WhatsApp, Telegram, Slack,
+# etc.) so your agent is available where you already chat. This step encourages
+# setting up at least one connector and walks through the process.
+$connectors = @(
+    @{ Name = "Discord"; Desc = "Bot for Discord servers" }
+    @{ Name = "WhatsApp"; Desc = "Bot via WhatsApp (QR code scan)" }
+    @{ Name = "Telegram"; Desc = "Bot for Telegram chats" }
+    @{ Name = "Slack";    Desc = "Bot for Slack workspaces" }
+)
+
+Write-Step "Connectors (optional)"
+Write-Info "Connect Hermes to messaging platforms so your agent is available"
+Write-Info "where you already chat. Each connector needs its own app/bot setup."
+
+if ($Yolo) {
+    Write-Info "Yolo mode: skipping connector setup. Add later with 'hermes setup'."
+} else {
+    $setupConnector = Read-Host "`nSet up a messaging connector now? [y/N]"
+    if ($setupConnector -eq 'y') {
+        Write-Host "`nAvailable connectors:"
+        for ($i = 0; $i -lt $connectors.Count; $i++) {
+            Write-Host "  $($i+1). $($connectors[$i].Name) - $($connectors[$i].Desc)"
+        }
+        Write-Host "  0. Skip for now"
+        $connChoice = Read-Host "Choose [0-$($connectors.Count), default 0]"
+        
+        if ($connChoice -ne '0' -and [int]$connChoice -ge 1 -and [int]$connChoice -le $connectors.Count) {
+            $chosen = $connectors[[int]$connChoice - 1].Name
+            Write-Step "Setting up $chosen connector"
+            
+            switch ($chosen) {
+                "Discord" {
+                    Write-Info "Discord bot setup:"
+                    Write-Info "  1. Go to https://discord.com/developers/applications"
+                    Write-Info "  2. Create a new application, then add a bot"
+                    Write-Info "  3. Copy the bot token"
+                    Write-Info "  4. Run: hermes setup"
+                    Write-Info "  5. Follow the prompts to add Discord as a connector"
+                    Write-Info "  6. Paste your bot token when prompted"
+                    Write-Info "  7. Invite the bot to your server"
+                }
+                "WhatsApp" {
+                    Write-Info "WhatsApp connector setup:"
+                    Write-Info "  1. Run: hermes setup"
+                    Write-Info "  2. Choose WhatsApp from the connector list"
+                    Write-Info "  3. A QR code will appear -- scan it with WhatsApp"
+                    Write-Info "  4. Your agent is now available on WhatsApp"
+                }
+                "Telegram" {
+                    Write-Info "Telegram bot setup:"
+                    Write-Info "  1. Message @BotFather on Telegram"
+                    Write-Info "  2. Use /newbot and follow the prompts"
+                    Write-Info "  3. Copy the bot token"
+                    Write-Info "  4. Run: hermes setup"
+                    Write-Info "  5. Follow the prompts to add Telegram as a connector"
+                    Write-Info "  6. Paste your bot token when prompted"
+                }
+                "Slack" {
+                    Write-Info "Slack app setup:"
+                    Write-Info "  1. Go to https://api.slack.com/apps and create a new app"
+                    Write-Info "  2. Add a bot user and copy the bot token"
+                    Write-Info "  3. Run: hermes setup"
+                    Write-Info "  4. Follow the prompts to add Slack as a connector"
+                    Write-Info "  5. Paste your bot token when prompted"
+                }
+            }
+            
+            Write-Info "`nAfter completing the above, run 'hermes doctor' to verify the connector is working."
+        }
+    }
+}
+
+# --- 7. optional extras -----------------------------------------------------
 if (-not $Yolo) {
     $acp = Read-Host "`nSet up ACP for your editor (VS Code/Zed/JetBrains)? [y/N]"
     if ($acp -eq 'y') {
@@ -368,7 +441,7 @@ if (-not $Yolo) {
     }
 }
 
-# --- 7. verify --------------------------------------------------------------
+# --- 8. verify --------------------------------------------------------------
 Write-Step "Verify"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
