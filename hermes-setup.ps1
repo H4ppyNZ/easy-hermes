@@ -298,11 +298,12 @@ if ($runSelector) {
         $pyCandidates += (Join-Path (Split-Path $hermesDir -Parent) 'venv\Scripts\python.exe')
     }
     # Last resort: python on PATH (may not have yaml, but we'll try)
+    # Filter out the Windows Store stub (WindowsApps\python.exe) -- it's not a real Python.
     $pyOnPath = Get-Command python -ErrorAction SilentlyContinue
-    if ($pyOnPath -and $pyOnPath.Source) {
+    if ($pyOnPath -and $pyOnPath.Source -and $pyOnPath.Source -notlike '*WindowsApps*') {
         $pyCandidates += $pyOnPath.Source
     }
-    $py = $pyCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    $py = $pyCandidates | Where-Object { Test-Path -LiteralPath $_ -and $_ -notlike '*WindowsApps*' } | Select-Object -First 1
     if (-not $py) {
         throw "venv python not found (tried: $($pyCandidates -join ', ')). The selector cannot run without it -- install hermes first, or re-run with -SkipInstall once 'hermes' is on PATH."
     }
