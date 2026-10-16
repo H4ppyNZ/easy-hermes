@@ -151,8 +151,7 @@ if ($SelectorOnly) {
     $runSelector = $true
     $SkipInstall = $true
     $SkipDocs = $true
-    goto Selector
-}
+} else {
 
 # --- 1. platform ------------------------------------------------------------
 Write-Step "Platform check"
@@ -265,6 +264,8 @@ if ($Yolo) {
     }
 }
 
+} # end else (SelectorOnly)
+
 # --- 5. model selector -----------------------------------------------------
 # The selector probes the live free-tier models, refreshes
 # fallback_providers + agent.reasoning_overrides through Hermes' own
@@ -277,7 +278,6 @@ if (-not $Yolo) {
     $runSelector = ($sel -ne 'n')
 }
 
-Selector:
 if ($runSelector) {
     Write-Step "Model selector (live probe of the free tier)"
     # The venv lives inside the hermes install dir. Derive it from HERMES_HOME,
