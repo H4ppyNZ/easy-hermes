@@ -865,6 +865,28 @@ def main():
         print(f"ERROR: {e}")
         sys.exit(1)
 
+    # Validate auth with a lightweight probe before running the full model sweep.
+    # A 401 here means the token is invalid/expired -- no point probing all models.
+    print("Validating auth token...")
+    try:
+        status, body, code = _post(
+            {"model": "meituan/longcat-2.5-preview:free",
+             "messages": [{"role": "user", "content": "hi"}],
+             "max_tokens": 1},
+            auth, timeout=15)
+        if code == 401:
+            print("\nERROR: Auth token is invalid or expired (HTTP 401).")
+            print("Run 'hermes model' to re-authenticate, then re-run this selector.")
+            sys.exit(1)
+        if code is not None and code >= 500:
+            print(f"\nWARNING: Auth validation got HTTP {code} -- proceeding anyway.")
+        elif status != "ok":
+            print(f"\nWARNING: Auth validation failed ({status}) -- proceeding anyway.")
+        else:
+            print("Auth OK.")
+    except Exception as e:
+        print(f"\nWARNING: Auth validation error ({e}) -- proceeding anyway.")
+
     history = load_history()
     print(f"Loaded promotion history: {len(history)} model(s) tracked")
 
