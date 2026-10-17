@@ -1,5 +1,3 @@
-$ErrorActionPreference = 'Stop'
-
 # Registers a daily scheduled task that runs the model selector (live probe of
 # the free tier). Follows the same pattern as Set-ScheduledTask.ps1 in the
 # nightlyrestart repo: runs as the same user that owns the Hermes gateway
@@ -19,6 +17,8 @@ param(
     [string]$RunAt = '4:00AM',
     [string]$HermesHome = $env:LOCALAPPDATA + '\hermes'
 )
+
+$ErrorActionPreference = 'Stop'
 
 $taskName = 'Hermes Model Selector'
 $selectorScript = Join-Path $PSScriptRoot 'hermes-model-selector.py'
@@ -73,7 +73,7 @@ $trigger = New-ScheduledTaskTrigger -Daily -At $RunAt
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId $HermesUser -LogonType Interactive -RunLevel Limited
 
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+Register-ScheduledTask -TaskName $taskName -TaskPath '\Hermes\' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
 Write-Output "Scheduled task '$taskName' will run '$wrapperScript' daily at $RunAt as '$HermesUser'."
 Write-Output "NOTE: an Interactive-principal task only fires when '$HermesUser' is logged on."

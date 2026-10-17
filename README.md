@@ -55,4 +55,9 @@ Set-ExecutionPolicy -ExecutionPolicy Undefined -Scope CurrentUser    # revert us
 
 - `hermes-setup.ps1` — main installer (install, auth, model selection, selector, primer)
 - `hermes-model-selector.py` — live free-tier probe, promotion gate, fallback chain writer
-- `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector
+- `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
+- `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
+- `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
+- `docs/installer-safety.md` — blast radius and safe re-run order for each step
+- `tools/` — operational helper scripts (fallback config) with README
+- `README.md` — this file
