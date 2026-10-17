@@ -58,6 +58,27 @@ function Write-Ok($msg)   { Write-Host "    [ok] $msg" -ForegroundColor Green }
 function Write-Info($msg) { Write-Host "    $msg" -ForegroundColor Gray }
 function Write-Warn($msg) { Write-Host "    [warn] $msg" -ForegroundColor Yellow }
 
+# --- 0. execution policy check ----------------------------------------------
+# Report (don't change) the effective ExecutionPolicy. The irm | iex one-liner
+# works regardless (memory-based, not file-based), but a friend who downloads
+# the .ps1 and runs it locally will hit Restricted policy. Flag it early.
+$execPolicy = Get-ExecutionPolicy
+if ($execPolicy -eq 'Bypass') {
+    Write-Warn "ExecutionPolicy is Bypass -- any script runs without restriction."
+    Write-Warn "Consider: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+} elseif ($execPolicy -eq 'Unrestricted') {
+    Write-Warn "ExecutionPolicy is Unrestricted -- all scripts run, even untrusted."
+    Write-Warn "Consider: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+} elseif ($execPolicy -eq 'Restricted') {
+    Write-Warn "ExecutionPolicy is Restricted -- local .ps1 files are blocked."
+    Write-Warn "The irm | iex one-liner still works (runs from memory)."
+} elseif ($execPolicy -eq 'AllSigned') {
+    Write-Info "ExecutionPolicy is AllSigned -- only signed scripts run."
+    Write-Info "This script is unsigned; the irm | iex one-liner is the way to run it."
+} else {
+    Write-Info "ExecutionPolicy: $execPolicy"
+}
+
 function Test-Hermes {
     return $null -ne (Get-Command hermes -ErrorAction SilentlyContinue)
 }
