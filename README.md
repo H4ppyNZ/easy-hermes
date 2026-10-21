@@ -55,6 +55,7 @@ Set-ExecutionPolicy -ExecutionPolicy Undefined -Scope CurrentUser    # revert us
 
 - `hermes-setup.ps1` — main installer (install, auth, model selection, selector, primer)
 - `hermes-model-selector.py` — live free-tier probe, promotion gate, fallback chain writer
+- `hermes-ollama-selector.py` — probe local Ollama models and merge them into the fallback chain (see docs/ollama-selector.md)
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)

@@ -311,7 +311,7 @@ if ($runSelector) {
     )
     $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
     if ($hermesCmd -and $hermesCmd.Source) {
-        $hermesDir = Split-Path $hermesCmd.Source -Parent
+        $hermesDir = Split-Path $hermesCmd.Source -Parentwh
         # venv\Scripts\hermes -> venv\Scripts\python.exe (same dir on Windows)
         $pyCandidates += (Join-Path $hermesDir 'python.exe')
         # bin\hermes -> ..\hermes-agent\venv\Scripts\python.exe (sibling venv)
