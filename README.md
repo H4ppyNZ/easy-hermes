@@ -14,11 +14,11 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 
 | Command | What it does |
 |---------|--------------|
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=2').Content)) -Yolo` | Full unattended install + auth + selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=2').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=2').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=2').Content)) -SelectorOnly` | Just run the model selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=2').Content)) -SchedulerOnly` | Register the daily scheduled task |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=3').Content)) -Yolo` | Full unattended install + auth + selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=3').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=3').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=3').Content)) -SelectorOnly` | Just run the model selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=3').Content)) -SchedulerOnly` | Register the daily scheduled task |
 
 ## Execution policy
 
