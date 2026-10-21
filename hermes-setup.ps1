@@ -167,6 +167,13 @@ if ($SchedulerOnly) {
     return
 }
 
+function Get-CurrentDefault {
+    # 'hermes config get' exits 1 and writes to stderr when the key is unset;
+    # under ErrorActionPreference=Stop that surfaces as a terminating
+    # NativeCommandError, so a virgin config would kill the script. Trap it.
+    try { return (Invoke-Hermes @('config', 'get', 'model.default')).Trim() } catch { return '' }
+}
+
 # --- SelectorOnly: skip install/auth, just run the selector ------------------
 if ($SelectorOnly) {
     if (-not (Test-Hermes)) { throw "hermes not on PATH. Install it first or run without -SelectorOnly." }
@@ -257,12 +264,6 @@ if ($Yolo) {
 # below (step 5), which probes the live free tier and only promotes a model
 # after clean passes. -Model still overrides: it is written here and the
 # selector then treats it as the incumbent (its gate will not demote it).
-function Get-CurrentDefault {
-    # 'hermes config get' exits 1 and writes to stderr when the key is unset;
-    # under ErrorActionPreference=Stop that surfaces as a terminating
-    # NativeCommandError, so a virgin config would kill the script. Trap it.
-    try { return (Invoke-Hermes @('config', 'get', 'model.default')).Trim() } catch { return '' }
-}
 
 if ($Yolo) {
     Write-Step "Model selection"
@@ -311,7 +312,7 @@ if ($runSelector) {
     )
     $hermesCmd = Get-Command hermes -ErrorAction SilentlyContinue
     if ($hermesCmd -and $hermesCmd.Source) {
-        $hermesDir = Split-Path $hermesCmd.Source -Parentwh
+        $hermesDir = Split-Path $hermesCmd.Source -Parent
         # venv\Scripts\hermes -> venv\Scripts\python.exe (same dir on Windows)
         $pyCandidates += (Join-Path $hermesDir 'python.exe')
         # bin\hermes -> ..\hermes-agent\venv\Scripts\python.exe (sibling venv)
