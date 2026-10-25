@@ -144,14 +144,17 @@ and runs the rest.
 - **Provider detection:** treat a provider as "configured" if all its required env
   vars are present. Add an override `HERMES_PROVIDERS=gemini,novita` (or
   `providers:` in config.yaml) so users can disable one without unsetting keys.
-- **Probe budget:** probe top-K per provider (e.g. 12) sorted by context window,
-  not the whole catalog. Full probe only in the nightly task. Keeps first-run
-  under ~2 minutes.
+- **Probe budget:** start at top-12 per provider sorted by context window; expect to
+  remove the cap once caching proves out. Full probe only in the nightly task.
+  Keeps first-run under ~2 minutes.
 - **Merge, don't replace:** on each run, merge passing models into the existing
   chain and mark failed ones DEAD (reuse Nous selector's IN SCOPE / DEAD /
   OUT OF SCOPE logic). Never wipe a working chain because one endpoint blipped.
-- **Observability:** write `cache/free_model_probe_cache.json` with per-model
-  pass/fail + timestamps for debugging "why did my default change?".
+- **Caching (DECIDED):** `cache/free_model_probe_cache.json` stores per-model
+  pass/fail + timestamps + a "last_probed" stamp. Skip re-probing models probed
+  within the TTL (default 7 days) unless `--refresh`. This avoids retesting
+  stale/invalidated models and saves quota. Also debugging "why did my default
+  change?".
 - **Backwards compat:** keep `hermes-model-selector.py` and
   `hermes-ollama-selector.py` working; new selector wraps them rather than
   replacing, so existing scheduled tasks keep functioning.
