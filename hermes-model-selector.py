@@ -744,7 +744,7 @@ def update_config(passed: list, chosen, reason: str, dry_run: bool = False,
         before = len(chain)
         chain = [e for e in chain if e["model"] != effective_default]
         if before != len(chain):
-            print(f"  Removed '{effective_default}' from the chain (it is model.default)")
+            pass  # routine: default model excluded from its own fallback chain (not a change)
 
     overrides = {m["model"]: m["reasoning"] for m in passed if m.get("reasoning")}
 
