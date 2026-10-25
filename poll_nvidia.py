@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from urllib.parse import urljoin
+from pathlib import Path
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -523,6 +524,8 @@ def main(argv=None):
     timeout = DEFAULT_TIMEOUT
     retries = DEFAULT_RETRIES
     base_url = None
+    out_dir = None
+    chat_only = False
 
     i = 0
     while i < len(argv):
@@ -549,6 +552,22 @@ def main(argv=None):
             base_url = a.split("=", 1)[1]
             i += 1
             continue
+        if a == "--out" and i + 1 < len(argv):
+            out_dir = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--out="):
+            out_dir = a.split("=", 1)[1]
+            i += 1
+            continue
+        if a == "--output" and i + 1 < len(argv):
+            out_dir = argv[i + 1]
+            i += 2
+            continue
+        if a == "--chat-only":
+            chat_only = True
+            i += 1
+            continue
         i += 1
 
     try:
@@ -560,6 +579,9 @@ def main(argv=None):
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if chat_only:
+        models = [m for m in models if _is_chat_like(m.get("id"))]
+
     if json_mode:
         print(json.dumps(models, indent=2, ensure_ascii=False))
     else:
@@ -570,6 +592,25 @@ def main(argv=None):
 
     if not models:
         say("No models returned (empty listing).")
+
+    if json_mode and (out_dir is not None or True):
+        # Write flat file when --json (default out/nvidia.json) unless --no-write
+        write_path = None
+        if "--no-write" in argv:
+            write_path = None
+        else:
+            d = out_dir if out_dir else "out"
+            write_path = Path(d) / "nvidia.json"
+        if write_path is not None:
+            try:
+                write_path.parent.mkdir(parents=True, exist_ok=True)
+                payload = {"source": MODELS_URL, "count": len(models), "models": models}
+                with open(write_path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
+                    f.write("\n")
+                say(f"Wrote JSON: {write_path}")
+            except OSError as e:
+                say(f"ERROR writing {write_path}: {e}")
 
     sys.exit(0)
 
