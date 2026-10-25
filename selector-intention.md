@@ -101,6 +101,7 @@ ollama-local:
   module: hermes-ollama-selector  # special: no poller, probes local daemon
   env: []
   probe: true
+  default_enabled: false  # most users lack local hardware; opt-in via --prefer-local
 ```
 
 The selector iterates this registry, skips providers with missing required env,
@@ -112,9 +113,11 @@ and runs the rest.
    fast/listing-only). Pollers stay importable and testable without network probes.
 2. **Concurrency cap for probing:** 4 parallel? NIM is ~40 RPM; Nous/OpenRouter
    similar. Need a shared rate limiter or per-provider limits.
-3. **Fallback chain ordering:** by context window? by release date? by param size?
-   Current Nous selector sorts by release date. Keep that, with provider priority
-   (local Ollama first for privacy?).
+3. **Fallback chain ordering:** keep release-date sort for now. Agreed this should
+   grow: expose a user-tunable weighting (e.g. `model_ranking` in config.yaml with
+   ordered keys/weights like context_window, release_date, provider_priority) and a
+   `--order` flag. Local Ollama is NOT preferred by default (most users lack
+   hardware); opt-in via `--prefer-local`.
 4. **Caching TTL:** current stance is "one pass = one sample, no TTL". Keep, but
    allow `--no-cache`/`--refresh`.
 5. **Nous Portal integration:** `hermes-model-selector.py` reads a local cache
@@ -131,9 +134,29 @@ and runs the rest.
 - Phase 2: introduce provider registry + a thin selector wrapper that calls pollers
   then probes. Keep `hermes-model-selector.py` and `hermes-ollama-selector.py`
   working unchanged.
-- Phase 3: installer (`hermes-setup.ps1`) calls the new selector; scheduled task
-  updated.
+- Phase 3: installer (`hermes-setup.ps1`) calls the new selector (fast path: probe top-N
+  only, to keep first-run interactive). Scheduled task runs the full probe out of
+  hours (daily 4 AM) where per-minute free quotas are not a constraint.
 - Phase 4: add `poll_nous.py`, retire cache-only path.
+
+## Additional suggestions (prior to Phase 2)
+
+- **Provider detection:** treat a provider as "configured" if all its required env
+  vars are present. Add an override `HERMES_PROVIDERS=gemini,novita` (or
+  `providers:` in config.yaml) so users can disable one without unsetting keys.
+- **Probe budget:** probe top-K per provider (e.g. 12) sorted by context window,
+  not the whole catalog. Full probe only in the nightly task. Keeps first-run
+  under ~2 minutes.
+- **Merge, don't replace:** on each run, merge passing models into the existing
+  chain and mark failed ones DEAD (reuse Nous selector's IN SCOPE / DEAD /
+  OUT OF SCOPE logic). Never wipe a working chain because one endpoint blipped.
+- **Observability:** write `cache/free_model_probe_cache.json` with per-model
+  pass/fail + timestamps for debugging "why did my default change?".
+- **Backwards compat:** keep `hermes-model-selector.py` and
+  `hermes-ollama-selector.py` working; new selector wraps them rather than
+  replacing, so existing scheduled tasks keep functioning.
+- **Nous poller:** add `poll_nous.py` in Phase 4 so Nous matches the contract;
+  until then the selector keeps reading `endpoint_model_metadata.json`.
 
 ## Success criteria
 
