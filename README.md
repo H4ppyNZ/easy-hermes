@@ -75,9 +75,35 @@ not rewrite `config.yaml`.
 - `hermes-ollama-selector.py` — probe local Ollama models and merge them into the fallback chain (see docs/ollama-selector.md)
 - `poll_openrouter.py` — poll OpenRouter's free models (see Pollers)
 - `poll_nvidia.py` — poll NVIDIA NIM free-tier models (best-effort)
+- `poll_gemini.py` — poll Google AI Studio (Gemini) free-tier models (best-effort / unverified)
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
 - `docs/installer-safety.md` — blast radius and safe re-run order for each step
 - `tools/` — operational helper scripts (fallback config) with README
 - `README.md` — this file
+
+
+## Gemini (Google AI Studio) polling (best-effort / unverified)
+
+`poll_gemini.py` lists the models exposed by Google AI Studio
+(`https://generativelanguage.googleapis.com/v1beta/models`).
+
+Caveats (read before relying on the output):
+
+- **Best-effort / unverified.** Google does not mark a free tier in the model
+  listing; free-tier eligibility is quota-based and follows AI Studio documented
+  free models and quotas. This script includes models supporting
+  `generateContent` (chat/completion) and marks them best-effort/unverified.
+  Confirm access with your own account.
+- **Auth required.** Set `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`.
+  The key is sent as `?key=` (and `x-goog-api-key` header).
+- **Pagination.** Uses `pageToken`/`nextPageToken`.
+- **May include non-free models.** The listing is not a free-tier catalog;
+  verify quotas in AI Studio.
+- **Terms of service.** Use in accordance with Google's ToS; do not hammer the
+  endpoint (the script retries with backoff).
+
+Auth env vars: `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`.
+Output: normalized list with `id`, `display_name`, `context_window`,
+`rate_limits` (null), `notes`.
