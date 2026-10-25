@@ -1,0 +1,119 @@
+{
+  "generated_at": "2026-10-25T01:38:04.288048+00:00",
+  "best_effort": true,
+  "unverified": true,
+  "status": "best-effort / unverified",
+  "source": "https://api.novita.ai/v3/openai/models",
+  "candidate_endpoints": [
+    "https://api.novita.ai/v3/openai/models",
+    "https://api.novita.ai/v3/openai/v1/models",
+    "https://api.novita.ai/openai/v1/models",
+    "https://api.novita.ai/v1/models"
+  ],
+  "count": 3,
+  "models": [
+    {
+      "id": "apodex/apodex-1.1-mini",
+      "name": "apodex/apodex-1.1-mini",
+      "provider": "novita",
+      "free": true,
+      "capabilities": [
+        "serverless",
+        "function-calling",
+        "structured-outputs",
+        "reasoning"
+      ],
+      "context_size": 262144,
+      "max_output_tokens": 262144,
+      "source": "https://api.novita.ai/v3/openai/models",
+      "owned_by": "novita",
+      "object": "model",
+      "created": 1790824276,
+      "title": "apodex/apodex-1.1-mini",
+      "description": "Apodex-1.1-mini is a reasoning-first model by Apodex for complex, long-horizon research and forecasting tasks. It works directly with files, data, code, and tools to deliver verifiable results, and ranks at the top of ProphetArena, the leading live forecasting benchmark.",
+      "display_name": "Apodex 1.1 Mini",
+      "model_type": "chat",
+      "status": 1,
+      "endpoints": [
+        "chat/completions",
+        "anthropic",
+        "responses"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "input_token_price_per_m": 0,
+      "output_token_price_per_m": 0
+    },
+    {
+      "id": "bunny",
+      "name": "bunny",
+      "provider": "novita",
+      "free": true,
+      "capabilities": [
+        "serverless",
+        "function-calling",
+        "structured-outputs"
+      ],
+      "context_size": 262144,
+      "max_output_tokens": 32768,
+      "source": "https://api.novita.ai/v3/openai/models",
+      "owned_by": "novita",
+      "object": "model",
+      "created": 1775817236,
+      "title": "bunny",
+      "description": "",
+      "display_name": "Bunny",
+      "model_type": "chat",
+      "status": 1,
+      "endpoints": [
+        "chat/completions"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "input_token_price_per_m": 0,
+      "output_token_price_per_m": 0
+    },
+    {
+      "id": "dev/glm46",
+      "name": "dev/glm46",
+      "provider": "novita",
+      "free": true,
+      "capabilities": [
+        "function-calling",
+        "structured-outputs",
+        "serverless"
+      ],
+      "context_size": 256000,
+      "max_output_tokens": 256000,
+      "source": "https://api.novita.ai/v3/openai/models",
+      "owned_by": "novita",
+      "object": "model",
+      "created": 1763607567,
+      "title": "dev/glm46",
+      "description": "",
+      "display_name": "dev/glm46",
+      "model_type": "chat",
+      "status": 1,
+      "endpoints": [
+        "chat/completions",
+        "anthropic"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "input_token_price_per_m": 0,
+      "output_token_price_per_m": 0
+    }
+  ]
+}
