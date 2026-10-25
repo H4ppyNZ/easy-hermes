@@ -1,0 +1,302 @@
+{
+  "generated_at": "2026-10-25T01:31:25.088191+00:00",
+  "best_effort": true,
+  "unverified": true,
+  "status": "best-effort / unverified",
+  "source": "https://ollama.com/api/tags",
+  "candidate_endpoints": [
+    "https://ollama.com/api/tags",
+    "https://api.ollama.com/v1/models",
+    "https://ollama.com/v1/models",
+    "https://api.ollama.com/api/tags"
+  ],
+  "count": 23,
+  "models": [
+    {
+      "id": "deepseek-v4-pro:0813",
+      "name": "deepseek-v4-pro:0813",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "minimax-m3.1-flash",
+      "name": "minimax-m3.1-flash",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "nemotron-3-super",
+      "name": "nemotron-3-super",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "glm-5.3-flash",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "clef:27b",
+      "name": "clef:27b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "decision",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "muse-spark-open",
+      "name": "muse-spark-open",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "name": "kimi-k2.7-code",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "vision",
+        "thinking",
+        "completion",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "minimax-m2.7",
+      "name": "minimax-m2.7",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "gemma4:31b",
+      "name": "gemma4:31b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "glm-5.2",
+      "name": "glm-5.2",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "thinking",
+        "completion",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "kimi-k3",
+      "name": "kimi-k3",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "vision",
+        "thinking",
+        "completion",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "beam",
+      "name": "beam",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "glm-5.3",
+      "name": "glm-5.3",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "deepseek-v4.1-flash:1017",
+      "name": "deepseek-v4.1-flash:1017",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "gpt-oss:120b",
+      "name": "gpt-oss:120b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "nemotron-3-nano:30b",
+      "name": "nemotron-3-nano:30b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "nemotron-3-ultra",
+      "name": "nemotron-3-ultra",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "kimi-k2.6",
+      "name": "kimi-k2.6",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "vision",
+        "thinking",
+        "completion",
+        "tools"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "deepseek-v4.1-flash",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "gpt-oss:20b",
+      "name": "gpt-oss:20b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "minimax-m3",
+      "name": "minimax-m3",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "mistral-large-3:675b",
+      "name": "mistral-large-3:675b",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    },
+    {
+      "id": "mistral-large-4",
+      "name": "mistral-large-4",
+      "provider": "ollama-cloud",
+      "free": true,
+      "capabilities": [
+        "completion",
+        "thinking",
+        "tools",
+        "vision"
+      ],
+      "source": "https://ollama.com/api/tags"
+    }
+  ]
+}
