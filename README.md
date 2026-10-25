@@ -56,28 +56,17 @@ Set-ExecutionPolicy -ExecutionPolicy Undefined -Scope CurrentUser    # revert us
 Small, standalone scripts that list (not probe) provider model catalogs. They do
 not rewrite `config.yaml`.
 
-- `poll_openrouter.py` — polls OpenRouter's public model listing and prints the
-  models currently advertised as free (normalized to `{id, display_name,
-  context_window, rate_limits, notes}`). Status: **verified (public API)**.
+### OpenRouter (`poll_openrouter.py`) — verified (public API)
+- Endpoint: `GET https://openrouter.ai/api/v1/models`
+- Auth env vars: `OPENROUTER_API_KEY` (optional)
+- Run: `python poll_openrouter.py` / `python poll_openrouter.py --json`
+- Filter: `pricing.prompt == 0` AND `pricing.completion == 0`, or id ends with `:free`.
 
-  - Provider: OpenRouter (https://openrouter.ai)
-  - Endpoint: `GET https://openrouter.ai/api/v1/models` (OpenAI-compatible)
-  - Auth env vars: `OPENROUTER_API_KEY` (optional). No key is required for the
-    public listing; a key is recommended for higher rate limits and is sent as
-    `Authorization: Bearer <key>`.
-  - Run: `python poll_openrouter.py` (table) or `python poll_openrouter.py --json`
-    (also writes `out/openrouter.json`; use `--out DIR` to change the dir).
-  - Filter rule: a model is free when `pricing.prompt == 0` AND
-    `pricing.completion == 0` (string `'0'` or numeric `0` are both accepted),
-    OR its `id` ends with `:free`. Rate limits are not part of the listing, so
-    `rate_limits` is `null` and noted.
-  - Caveats: public listing is rate-limited (use a key), subject to OpenRouter's
-    ToS, and reflects advertised pricing which can change without notice. Results
-    are a snapshot, not a guarantee of availability/quota.
-
-Tests: `python -m pytest -q` (requires pytest; install with
-`python -m pip install --break-system-packages pytest` if missing). A smoke
-fallback is not provided; pytest is the supported runner.
+### NVIDIA NIM (`poll_nvidia.py`) — best-effort
+- Endpoint: `GET https://integrate.api.nvidia.com/v1/models`
+- Auth env vars: `NVIDIA_API_KEY` (or `NGC_API_KEY`) (required)
+- Run: `python poll_nvidia.py` / `python poll_nvidia.py --json`
+- Filter: all returned models (free-tier is quota-based, not a listing flag).
 
 ## Files
 
@@ -85,6 +74,7 @@ fallback is not provided; pytest is the supported runner.
 - `hermes-model-selector.py` — live free-tier probe, promotion gate, fallback chain writer
 - `hermes-ollama-selector.py` — probe local Ollama models and merge them into the fallback chain (see docs/ollama-selector.md)
 - `poll_openrouter.py` — poll OpenRouter's free models (see Pollers)
+- `poll_nvidia.py` — poll NVIDIA NIM free-tier models (best-effort)
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
