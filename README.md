@@ -76,6 +76,7 @@ not rewrite `config.yaml`.
 - `poll_openrouter.py` — poll OpenRouter's free models (see Pollers)
 - `poll_nvidia.py` — poll NVIDIA NIM free-tier models (best-effort)
 - `poll_gemini.py` — poll Google AI Studio (Gemini) free-tier models (best-effort / unverified)
+- `poll_ollama_cloud.py` — poll Ollama Cloud model catalog (best-effort / unverified)
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
@@ -107,3 +108,30 @@ Caveats (read before relying on the output):
 Auth env vars: `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY`.
 Output: normalized list with `id`, `display_name`, `context_window`,
 `rate_limits` (null), `notes`.
+## Ollama Cloud polling (best-effort / unverified)
+
+`poll_ollama_cloud.py` lists the models exposed by Ollama Cloud
+(`https://ollama.com/api/tags`, `https://api.ollama.com/v1/models`, ...).
+
+Caveats (read before relying on the output):
+
+- **Best-effort / unverified.** Ollama Cloud does not publish a pricing or
+  free-tier field in its listing API, and "free" is governed by account quotas
+  and which models your account can invoke. This script treats every listed
+  model as free-tier subject to quotas unless an explicit `price`/`pricing`
+  field is present (then only `price == 0` is kept). Confirm access with your
+  own account.
+- **Endpoint unverified.** The listing endpoints are not a stable, documented
+  contract. The script tries several candidate URLs in order and uses the first
+  that yields a parseable list. It may break without notice.
+- **May require an account.** Some endpoints/models need `OLLAMA_API_KEY`
+  (or `OLLAMA_CLOUD_API_KEY`). The public `https://ollama.com/api/tags`
+  endpoint works without a key.
+- **Geographic / availability limits.** Model availability can vary by region
+  and account tier.
+- **Terms of service.** Use in accordance with Ollama's ToS; do not hammer
+  the endpoint (the script retries with backoff).
+
+Auth env vars: `OLLAMA_API_KEY` (preferred) or `OLLAMA_CLOUD_API_KEY`.
+Output: `out/ollama-cloud.json`.
+
