@@ -77,6 +77,7 @@ not rewrite `config.yaml`.
 - `poll_nvidia.py` — poll NVIDIA NIM free-tier models (best-effort)
 - `poll_gemini.py` — poll Google AI Studio (Gemini) free-tier models (best-effort / unverified)
 - `poll_ollama_cloud.py` — poll Ollama Cloud model catalog (best-effort / unverified)
+- `poll_novita.py` — poll Novita AI free models (best-effort/unverified); writes `out/novita.json`
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
