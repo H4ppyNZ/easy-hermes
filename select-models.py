@@ -173,7 +173,7 @@ import urllib.request
 import urllib.error
 
 
-def _openai_probe(model_id, base_url, api_key, timeout=30):
+def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None):
     url = base_url.rstrip("/")
     if not url.endswith("/v1"):
         url = url + "/v1"
@@ -186,6 +186,8 @@ def _openai_probe(model_id, base_url, api_key, timeout=30):
     headers = {"Content-Type": "application/json", "User-Agent": "easy-hermes/select-models"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    if extra_headers:
+        headers.update(extra_headers)
     retried = False
     last = "no attempt"
     for delay in (0, 2, 5):
@@ -295,7 +297,7 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None):
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
         t = timeout if timeout else cfg.get("probe_timeout", 30)
-        return _openai_probe(model_id, base, api_key, timeout=t)
+        return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
         t = timeout if timeout else cfg.get("probe_timeout", 30)

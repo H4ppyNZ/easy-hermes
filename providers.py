@@ -24,12 +24,15 @@ PROVIDERS = {
         "probe": True,
         "probe_kind": "openai",
         "probe_base_url": "https://openrouter.ai/api/v1",
+        "probe_headers": {
+            "HTTP-Referer": "https://github.com/H4ppyNZ/easy-hermes",
+            "X-Title": "easy-hermes",
+        },
         "default_enabled": True,
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
     },
     "nvidia": {
-        "slug": "nvidia",
         "display": "NVIDIA NIM",
         "module": "poll_nvidia",
         "env_any": ["NVIDIA_API_KEY", "NGC_API_KEY"],
@@ -130,13 +133,12 @@ def validate_key(cfg, timeout=10):
     try:
         if kind == "gemini":
             url = base + "/models?key=" + urllib.parse.quote(key, safe="")
-            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "easy-hermes/select-models"})
         else:
             url = base + "/models"
-            req = urllib.request.Request(
-                url,
-                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-            )
+            headers = {"Authorization": f"Bearer {key}", "Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
+            headers.update(cfg.get("probe_headers") or {})
+            req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp.read()
         return True, f"key OK ({key_name})"
