@@ -18,13 +18,11 @@ scriptblock cast and pull `main`, so a push is live for testers at once.
 | verify | always | `hermes doctor`, read-only |
 
 **The install step is the real risk, and it is not data loss.** `install.ps1` treats an
-existing `$InstallDir` containing `.git` as "update me": fetch, then
+`install.ps1` treats an existing `$InstallDir` containing `.git` as "update me": fetch, then
 `git reset --hard origin/<branch>` -- or move the tree aside to
-`$InstallDir.broken-<yyyyMMdd-HHmmss>` when the clone has no commits. So a plain re-run
-silently upgrades Hermes to the latest stable and refreshes the dependency environment
-under the user. What it preserves: uncommitted changes are `git stash push
---include-untracked`-ed before any reset, and commits absent from origin are parked in a
-`refs/hermes-update-backups/...` rescue ref. `-SkipInstall` avoids the step entirely.
+`$InstallDir.broken-<yyyyMMdd-HHmmss>` when the clone has no commits. A plain re-run
+silently upgrades Hermes to the latest `main`, refreshes the dependency environment
+under the user, and stashes uncommitted changes before any reset.
 
 **The selector rewrites config wholesale.** `update_config()` REPLACES `fallback_providers`
 and `agent.reasoning_overrides` with tonight's probe results -- it does not merge. If nothing

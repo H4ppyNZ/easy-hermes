@@ -18,6 +18,7 @@ PROVIDERS = {
         "slug": "openrouter",
         "display": "OpenRouter",
         "module": "poll_openrouter",
+        "fetch_fn": "poll",
         "env_any": [],                       # public listing; key optional
         "env_optional": ["OPENROUTER_API_KEY"],
         "requires_key": False,
@@ -33,8 +34,10 @@ PROVIDERS = {
         "probe_top_nightly": 12,
     },
     "nvidia": {
+        "slug": "nvidia",
         "display": "NVIDIA NIM",
         "module": "poll_nvidia",
+        "fetch_fn": "poll",
         "env_any": ["NVIDIA_API_KEY", "NGC_API_KEY"],
         "env_optional": [],
         "requires_key": True,
@@ -50,6 +53,7 @@ PROVIDERS = {
         "slug": "gemini",
         "display": "Google AI Studio (Gemini)",
         "module": "poll_gemini",
+        "fetch_fn": "poll",
         "env_any": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
         "env_optional": [],
         "requires_key": True,
@@ -64,6 +68,7 @@ PROVIDERS = {
         "slug": "ollama-cloud",
         "display": "Ollama Cloud",
         "module": "poll_ollama_cloud",
+        "fetch_fn": "poll",
         "env_any": [],                       # public tags endpoint works keyless
         "env_optional": ["OLLAMA_API_KEY", "OLLAMA_CLOUD_API_KEY"],
         "requires_key": False,
@@ -78,6 +83,7 @@ PROVIDERS = {
         "slug": "novita",
         "display": "Novita AI",
         "module": "poll_novita",
+        "fetch_fn": "poll",
         "env_any": ["NOVITA_API_KEY", "NOVITA_KEY", "NOVITA_AI_API_KEY"],
         "env_optional": [],
         "requires_key": True,
@@ -92,6 +98,7 @@ PROVIDERS = {
         "slug": "ollama-local",
         "display": "Local Ollama",
         "module": "hermes-ollama-selector",
+        "fetch_fn": "fetch_models",
         "env_any": [],                       # daemon, no key
         "env_optional": [],
         "requires_key": False,
@@ -106,6 +113,7 @@ PROVIDERS = {
         "slug": "nous",
         "display": "Nous Portal",
         "module": "poll_nous",
+        "fetch_fn": "poll",
         "env_any": [],                       # cache-based; auth handled by hermes-model-selector
         "env_optional": [],
         "requires_key": False,

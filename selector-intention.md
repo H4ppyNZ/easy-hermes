@@ -6,7 +6,7 @@
   (`poll_openrouter.py`, `poll_nvidia.py`, `poll_gemini.py`,
   `poll_ollama_cloud.py`, `poll_novita.py`) are merged, along with
   `providers.py` (registry) and `select-models.py` (central selector).
-- **53 tests pass** (`python -m pytest -q`, no network).
+- **60 tests pass** (`python -m pytest -q`, no network).
 - **Keys already set** in Windows user env (`HKEY_CURRENT_USER\Environment`),
   not shell env: `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`,
   `OLLAMA_API_KEY`. `OPENROUTER_API_KEY` is optional (not set).
@@ -28,7 +28,7 @@
 
 1. Wire `select-models.py` into `hermes-setup.ps1` + the nightly task.
 2. Add `poll_nous.py` and retire the cache-only Nous path.
-3. Add user-tunable ordering weights (`model_ranking` in config.yaml, `--order`).
+3. **Ordering weights** are implemented as a configurable `model_ranking` matrix; keep the merge/ownership decision open for now.
 
 ---
 
