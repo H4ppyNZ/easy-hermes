@@ -81,7 +81,9 @@ python -m pytest -q   # 10 passed
 ### NVIDIA NIM (key required)
 ```bash
 cd ...\scratch\work-nvidia
-set NVIDIA_API_KEY=<key>
+set NVIDIA_API_KEY=<key> #Linx
+$env:NVIDIA_API_KEY = "<key>" #powershell temporary
+[System.Environment]::SetEnvironmentVariable("NVIDIA_API_KEY", "<key>", "User") #powershell permanent
 python poll_nvidia.py --json
 # without key: python poll_nvidia.py  -> exit 2, clear "missing creds" message
 python -m pytest -q   # 9 passed
@@ -91,6 +93,8 @@ python -m pytest -q   # 9 passed
 ```bash
 cd ...\scratch\verify-gemini
 set GOOGLE_API_KEY=<key>
+$env:GOOGLE_API_KEY = "<key>" #powershell temporary
+[System.Environment]::SetEnvironmentVariable("GOOGLE_API_KEY", "<key>", "User") #powershell permanent
 python poll_gemini.py --json
 # without key: exit 2
 python -m pytest -q   # 8 passed
@@ -101,6 +105,7 @@ python -m pytest -q   # 8 passed
 cd ...\scratch\verify-ollama-cloud
 python poll_ollama_cloud.py --json          # tries public endpoint first
 set OLLAMA_API_KEY=<key>
+[System.Environment]::SetEnvironmentVariable("OLLAMA_API_KEY", "<key>", "User") #powershell permanent
 python poll_ollama_cloud.py --json          # authed
 python -m pytest -q   # 12 passed
 ```
@@ -109,6 +114,7 @@ python -m pytest -q   # 12 passed
 ```bash
 cd ...\scratch\verify-novita
 set NOVITA_API_KEY=<key>
+[System.Environment]::SetEnvironmentVariable("NOVITA_API_KEY", "<key>", "User") #powershell permanent
 python poll_novita.py --json
 python -m pytest -q   # 14 passed
 ```
