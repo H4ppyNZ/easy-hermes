@@ -354,7 +354,7 @@ def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None):
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
-        "max_tokens": 64,
+        "max_tokens": 256,
     }
     headers = {"Content-Type": "application/json", "User-Agent": "easy-hermes/select-models"}
     if api_key:
@@ -404,7 +404,7 @@ def _gemini_probe(model_id, api_key, base_url, timeout=30):
         mid = "models/" + mid
     url = f"{base_url.rstrip('/')}/{mid}:generateContent?key={api_key}"
     payload = {"contents": [{"parts": [{"text": "Say 'ok' and nothing else."}]}],
-               "generationConfig": {"maxOutputTokens": 64}}
+               "generationConfig": {"maxOutputTokens": 256}}
     retried = False
     last = "no attempt"
     for delay in (0, 5, 15):
