@@ -109,11 +109,12 @@ DEFAULT_RANKING_WEIGHTS = {
 }
 DEFAULT_PROVIDER_PRIORITY = {
     "openrouter": 1.0,
-    "gemini": 0.8,
-    "nvidia": 0.7,
-    "novita": 0.6,
-    "ollama-cloud": 0.75,
-    "ollama-local": 0.9,
+    "gemini": 1.0,
+    "nvidia": 1.0,
+    "novita": 1.0,
+    "ollama-cloud": 1.0,
+    "ollama-local": 1.0,
+    "nous": 1.0,
 }
 
 

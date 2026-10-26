@@ -91,16 +91,17 @@ model_ranking:
     provider_priority: 0.30
   provider_priority:
     openrouter: 1.0
-    gemini: 0.8
-    nvidia: 0.7
-    novita: 0.6
-    ollama-cloud: 0.75
-    ollama-local: 0.9
+    gemini: 1.0
+    nvidia: 1.0
+    novita: 1.0
+    ollama-cloud: 1.0
+    ollama-local: 1.0
+    nous: 1.0
   missing_release_date: 0.0
 ```
 
 - `weights` are normalized to sum 1.
-- `provider_priority` values are clamped to 0..1; missing providers default to 1.0.
+- `provider_priority` values are clamped to 0..1; missing providers default to 1.0 (neutral).
 - `missing_release_date` is the normalized score used when a model has no release
   date (0.0 = penalize, 1.0 = treat as newest).
 - Release dates come from the provider catalog (`created` for OpenRouter) and are

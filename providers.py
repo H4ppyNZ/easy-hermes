@@ -102,8 +102,20 @@ PROVIDERS = {
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
     },
-    # Nous Portal is handled by hermes-model-selector.py (cache-based) for now.
-    # A poll_nous.py will be added in Phase 4 to match this contract.
+    "nous": {
+        "slug": "nous",
+        "display": "Nous Portal",
+        "module": "poll_nous",
+        "env_any": [],                       # cache-based; auth handled by hermes-model-selector
+        "env_optional": [],
+        "requires_key": False,
+        "probe": False,
+        "probe_kind": "openai",
+        "probe_base_url": "https://inference-api.nousresearch.com/v1",
+        "default_enabled": True,
+        "probe_top_first_run": 3,
+        "probe_top_nightly": 12,
+    },
 }
 
 def validate_key(cfg, timeout=10):
