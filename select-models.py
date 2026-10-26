@@ -26,6 +26,9 @@ import providers
 
 CACHE_TTL_DAYS = 7
 RANKING = None
+REASONING_PRIORITY = ["max", "xhigh", "high", "medium", "low", "minimal", "none"]
+PROBE_MAX_TOKENS = 2000
+PROBE_RETRY_MAX_TOKENS = 8000
 REASONING_MODE = None
 
 
@@ -166,6 +169,88 @@ def reasoning_score_from_note(note):
     if m:
         return 1.0 if int(m.group(1)) > 0 else 0.0
     return 0.0
+
+
+def get_reasoning_efforts(model_id, base_url):
+    import os
+    cache_path = HERMES_HOME / "cache" / "reasoning_caps.json"
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    # map base url to cache key
+    keys = []
+    if base_url:
+        keys.append(base_url.rstrip("/") + "/models")
+        keys.append(base_url.rstrip("/"))
+    keys.append("https://openrouter.ai/api/v1/models")
+    keys.append("https://inference-api.nousresearch.com/v1/models")
+    for k in keys:
+        bucket = data.get(k, {})
+        caps = bucket.get("caps", {}) if isinstance(bucket, dict) else {}
+        info = caps.get(model_id)
+        if isinstance(info, dict):
+            return info.get("supported_efforts")
+    return None
+
+
+def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
+    base = cfg.get("probe_base_url") or ""
+    t = timeout if timeout else cfg.get("probe_timeout", 30)
+    extra = cfg.get("probe_headers")
+    supported = get_reasoning_efforts(model_id, base)
+    if supported:
+        efforts = [e for e in REASONING_PRIORITY if e in supported]
+    else:
+        efforts = [e for e in REASONING_PRIORITY]
+    if not efforts:
+        efforts = ["high"]
+    retried_overall = False
+    chosen = None
+    last_note = "no attempt"
+    for idx, effort in enumerate(efforts):
+        print(f"    probing reasoning={effort}...", end=" ", flush=True)
+        passed, note, retried = _openai_probe(
+            model_id, base, api_key, timeout=t, extra_headers=extra,
+            reasoning=effort, max_tokens=PROBE_MAX_TOKENS)
+        if retried:
+            retried_overall = True
+        print(f"{'PASS' if passed and not retried else 'fail'} ({note})")
+        if passed and not retried:
+            chosen = effort
+            last_note = f"{note} (effort={effort})"
+            break
+        if passed and retried:
+            # retry with larger budget
+            print(f"    retrying with max_tokens={PROBE_RETRY_MAX_TOKENS}...", end=" ", flush=True)
+            passed2, note2, retried2 = _openai_probe(
+                model_id, base, api_key, timeout=t, extra_headers=extra,
+                reasoning=effort, max_tokens=PROBE_RETRY_MAX_TOKENS)
+            if retried2:
+                retried_overall = True
+            print(f"{'PASS' if passed2 else 'fail'} ({note2})")
+            if passed2:
+                chosen = effort
+                last_note = f"{note2} (effort={effort}, budget retry)"
+                break
+        last_note = note
+    if chosen is None:
+        # try omitted
+        print("    probing with reasoning_effort omitted...", end=" ", flush=True)
+        passed, note, retried = _openai_probe(
+            model_id, base, api_key, timeout=t, extra_headers=extra,
+            reasoning=None, max_tokens=PROBE_MAX_TOKENS)
+        if retried:
+            retried_overall = True
+        print(f"{'PASS' if passed else 'fail'} ({note})")
+        if passed:
+            chosen = None
+            last_note = f"{note} (effort=none)"
+    if chosen is not None or (chosen is None and 'passed' in locals() and passed):
+        return True, last_note, retried_overall
+    return False, last_note, retried_overall
 
 
 def load_ranking_config():
@@ -359,7 +444,7 @@ import urllib.request
 import urllib.error
 
 
-def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, reasoning=None):
+def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, reasoning=None, max_tokens=256):
     url = base_url.rstrip("/")
     if not url.endswith("/v1"):
         url = url + "/v1"
@@ -367,7 +452,7 @@ def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, r
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
-        "max_tokens": 256,
+        "max_tokens": max_tokens,
     }
     if reasoning is not None:
         payload["reasoning_effort"] = reasoning
@@ -488,7 +573,9 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
         t = timeout if timeout else cfg.get("probe_timeout", 30)
-        return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"), reasoning=reasoning)
+        if REASONING_MODE:
+            return probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=t)
+        return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
         t = timeout if timeout else cfg.get("probe_timeout", 30)
