@@ -570,6 +570,8 @@ def main():
                     help="Score (0..1) used when a model has no release date")
     ap.add_argument("--show-ranking", action="store_true",
                     help="Print the current ranking matrix and exit")
+    ap.add_argument("--model", action="append", metavar="MODEL_ID",
+                    help="Retest a specific model id on the selected providers (repeatable)")
     args = ap.parse_args()
 
     # --- ranking matrix management (no probing) ---
@@ -655,6 +657,36 @@ def main():
     global RANKING
     RANKING = ranking
     configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
+
+    if args.model:
+        print("Targeted retest:")
+        for slug in configured:
+            cfg = providers.PROVIDERS[slug]
+            print(f"\n=== {cfg['display']} ({slug}) ===")
+            ok, vnote = providers.validate_key(cfg)
+            if not ok:
+                print(f"  key validation failed: {vnote}")
+                continue
+            key, _ = providers.get_api_key(cfg)
+            for mid in args.model:
+                if not cfg.get("probe", True):
+                    print(f"  {mid}: unverified (listing-only provider)")
+                    continue
+                if args.refresh:
+                    cr = None
+                else:
+                    cr = cached_result(cache, slug, mid, False)
+                if cr is not None:
+                    cached_passed, cached_note, cached_retried = cr
+                    passed, note, retried = cached_passed, cached_note, cached_retried
+                    note = f"[cache] {note}"
+                else:
+                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"))
+                    put_cache(cache, slug, mid, passed, note, retried)
+                clean = bool(passed) and not bool(retried)
+                print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
+        save_cache(cache)
+        sys.exit(0)
 
     all_passing = []
     summary = []
