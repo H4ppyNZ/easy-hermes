@@ -139,6 +139,38 @@ ollama-local:
 The selector iterates this registry, skips providers with missing required env,
 and runs the rest.
 
+## Decisions (Oct 26, from handover review)
+
+1. **Installer integration:** wait until `select-models.py` is battle-tested; do not
+   wire it into `hermes-setup.ps1` yet.
+2. **Local Ollama default:** opt-in only via `--prefer-local`; ask in non-YOLO
+   installer runs.
+3. **Ordering weights:** parked until current providers are working; revisit later.
+4. **Nous:** review `hermes-model-selector.py` vs `select-models.py` before deciding
+   merge vs keep-separate (see review below). Do not merge yet.
+5. **Nightly schedule:** keep it uniform with the existing nightly task (3 AM)
+   rather than a separate 4 AM slot.
+
+## Review: `hermes-model-selector.py` vs `select-models.py` (do not merge yet)
+
+- `hermes-model-selector.py` (944 lines) is Nous-specific: reads
+  `endpoint_model_metadata.json`, fetches release dates, probes the Nous free
+  tier, applies a promotion gate with hysteresis, and writes config through
+  Hermes' comment-preserving YAML writer. It is the incumbent primary-slot
+  authority.
+- `select-models.py` (531 lines) is the new multi-provider selector: provider
+  registry, fetch + probe top-N, 7-day cache, merge into existing
+  `fallback_providers`, and writes via `yaml.safe_dump`.
+- **Overlap / risk:** both write `model.default` and `fallback_providers`; if both
+  run, the last writer wins and the Nous promotion gate can be bypassed.
+- **Differences that matter:** Nous selector preserves YAML comments/order and
+  has the promotion gate; select-models merges instead of replacing and adds
+  caching. Config-write strategies differ (comment-preserving vs safe_dump).
+- **Recommendation before merging:** define a single owner of `model.default`
+  (likely Nous selector for Nous, select-models for everything else), or have
+  select-models delegate Nous to the existing selector. Reconcile the YAML
+  writer and cache semantics first; keep both runnable in the meantime.
+
 ## Open questions (decide before coding)
 
 1. **Probe in selector vs poller?** Recommendation: probe in selector (keeps pollers
