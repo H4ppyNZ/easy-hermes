@@ -562,7 +562,82 @@ def main():
     ap.add_argument("--json", action="store_true", help="Emit JSON summary")
     ap.add_argument("--top", type=int, help="Override probe budget")
     ap.add_argument("--full", action="store_true", help="Probe every candidate (ignore top-N budget)")
+    ap.add_argument("--set-weight", action="append", metavar="KEY=VALUE",
+                    help="Set a ranking weight, e.g. release_date=0.5 (repeatable)")
+    ap.add_argument("--set-priority", action="append", metavar="PROVIDER=VALUE",
+                    help="Set provider priority, e.g. openrouter=1.0 (repeatable)")
+    ap.add_argument("--set-missing-release", type=float, metavar="SCORE",
+                    help="Score (0..1) used when a model has no release date")
+    ap.add_argument("--show-ranking", action="store_true",
+                    help="Print the current ranking matrix and exit")
     args = ap.parse_args()
+
+    # --- ranking matrix management (no probing) ---
+    if args.show_ranking or args.set_weight or args.set_priority or args.set_missing_release is not None:
+        cfg, yaml_mod = load_config()
+        if not isinstance(cfg, dict):
+            cfg = {}
+        mr = cfg.setdefault("model_ranking", {})
+        if not isinstance(mr, dict):
+            mr = {}
+            cfg["model_ranking"] = mr
+        mr.setdefault("weights", dict(DEFAULT_RANKING_WEIGHTS))
+        mr.setdefault("provider_priority", dict(DEFAULT_PROVIDER_PRIORITY))
+        mr.setdefault("missing_release_date", 0.0)
+
+        if args.set_weight:
+            for item in args.set_weight:
+                if "=" not in item:
+                    print(f"ERROR: expected KEY=VALUE, got {item!r}", file=sys.stderr)
+                    sys.exit(2)
+                k, v = item.split("=", 1)
+                try:
+                    mr["weights"][k.strip()] = float(v)
+                except ValueError:
+                    print(f"ERROR: invalid number {v!r}", file=sys.stderr)
+                    sys.exit(2)
+        if args.set_priority:
+            for item in args.set_priority:
+                if "=" not in item:
+                    print(f"ERROR: expected PROVIDER=VALUE, got {item!r}", file=sys.stderr)
+                    sys.exit(2)
+                k, v = item.split("=", 1)
+                try:
+                    mr["provider_priority"][k.strip()] = float(v)
+                except ValueError:
+                    print(f"ERROR: invalid number {v!r}", file=sys.stderr)
+                    sys.exit(2)
+        if args.set_missing_release is not None:
+            mr["missing_release_date"] = float(args.set_missing_release)
+
+        # normalize weights for display
+        w = mr.get("weights", {})
+        try:
+            total = sum(float(x) for x in w.values())
+        except (TypeError, ValueError):
+            total = 0.0
+        if total > 0:
+            norm = {k: round(float(v) / total, 4) for k, v in w.items()}
+        else:
+            norm = dict(w)
+
+        print("Ranking matrix:")
+        print("  weights (raw):", w)
+        print("  weights (normalized):", norm)
+        print("  provider_priority:", mr.get("provider_priority", {}))
+        print("  missing_release_date:", mr.get("missing_release_date"))
+
+        if (args.set_weight or args.set_priority or args.set_missing_release is not None) and not args.dry_run:
+            try:
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    yaml_mod.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                print(f"Updated {CONFIG_PATH}")
+            except Exception as e:
+                print(f"ERROR writing config: {e}", file=sys.stderr)
+                sys.exit(1)
+        elif (args.set_weight or args.set_priority or args.set_missing_release is not None) and args.dry_run:
+            print("DRY RUN -- config not written.")
+        sys.exit(0)
 
     dry_run = args.dry_run
     nightly = args.nightly
