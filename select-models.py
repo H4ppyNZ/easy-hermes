@@ -200,17 +200,27 @@ def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
     base = cfg.get("probe_base_url") or ""
     t = timeout if timeout else cfg.get("probe_timeout", 30)
     extra = cfg.get("probe_headers")
+    # Phase 1: initial polling WITHOUT reasoning (decides pass/fail).
+    print("    base probe (no reasoning)...", end=" ", flush=True)
+    passed0, note0, retried0 = _openai_probe(
+        model_id, base, api_key, timeout=t, extra_headers=extra,
+        reasoning=None, max_tokens=PROBE_MAX_TOKENS)
+    retried_overall = bool(retried0)
+    print(f"{'PASS' if passed0 else 'fail'} ({note0})")
+    if not passed0:
+        return False, note0, retried_overall
+
+    # Phase 2: poll each advertised reasoning level (does not un-pass the model).
     supported = get_reasoning_efforts(model_id, base)
     if supported:
-        efforts = [e for e in REASONING_PRIORITY if e in supported]
+        efforts = [e for e in REASONING_PRIORITY if e in supported and e != "none"]
     else:
-        efforts = [e for e in REASONING_PRIORITY]
+        efforts = [e for e in REASONING_PRIORITY if e != "none"]
     if not efforts:
         efforts = ["high"]
-    retried_overall = False
-    chosen = None
-    last_note = "no attempt"
-    for idx, effort in enumerate(efforts):
+
+    chosen_note = note0 + " (no reasoning effort worked)"
+    for effort in efforts:
         print(f"    probing reasoning={effort}...", end=" ", flush=True)
         passed, note, retried = _openai_probe(
             model_id, base, api_key, timeout=t, extra_headers=extra,
@@ -218,12 +228,11 @@ def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
         if retried:
             retried_overall = True
         print(f"{'PASS' if passed and not retried else 'fail'} ({note})")
-        if passed and not retried:
-            chosen = effort
-            last_note = f"{note} (effort={effort})"
+        if passed:
+            chosen_note = f"{note} (effort={effort})"
+            # store chosen effort by appending to note only; pass already secured
             break
-        if passed and retried:
-            # retry with larger budget
+        if passed is False and note.startswith("budget exhausted"):
             print(f"    retrying with max_tokens={PROBE_RETRY_MAX_TOKENS}...", end=" ", flush=True)
             passed2, note2, retried2 = _openai_probe(
                 model_id, base, api_key, timeout=t, extra_headers=extra,
@@ -232,25 +241,9 @@ def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
                 retried_overall = True
             print(f"{'PASS' if passed2 else 'fail'} ({note2})")
             if passed2:
-                chosen = effort
-                last_note = f"{note2} (effort={effort}, budget retry)"
+                chosen_note = f"{note2} (effort={effort}, budget retry)"
                 break
-        last_note = note
-    if chosen is None:
-        # try omitted
-        print("    probing with reasoning_effort omitted...", end=" ", flush=True)
-        passed, note, retried = _openai_probe(
-            model_id, base, api_key, timeout=t, extra_headers=extra,
-            reasoning=None, max_tokens=PROBE_MAX_TOKENS)
-        if retried:
-            retried_overall = True
-        print(f"{'PASS' if passed else 'fail'} ({note})")
-        if passed:
-            chosen = None
-            last_note = f"{note} (effort=none)"
-    if chosen is not None or (chosen is None and 'passed' in locals() and passed):
-        return True, last_note, retried_overall
-    return False, last_note, retried_overall
+    return True, chosen_note, retried_overall
 
 
 def load_ranking_config():
