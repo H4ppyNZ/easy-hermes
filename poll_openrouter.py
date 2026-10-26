@@ -86,6 +86,7 @@ def normalize_model(model) -> dict:
         "id": mid,
         "display_name": model.get("name") or mid,
         "context_window": context_window,
+        "created": model.get("created"),
         "rate_limits": rate_limits,
         "notes": notes,
     }

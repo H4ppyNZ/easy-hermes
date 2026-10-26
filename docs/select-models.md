@@ -78,6 +78,36 @@ headers), run with `--refresh` once.
   Sandbox credit is 90-day, one-time and may not cover LLM API).
 - **Ollama Cloud**: listing only (unverified).
 
+## Ranking matrix (configurable)
+
+`select-models.py` scores each passing model with a weighted sum of normalized
+factors. Configure it in `~/.hermes/config.yaml` under `model_ranking`:
+
+```yaml
+model_ranking:
+  weights:
+    release_date: 0.40
+    context_window: 0.30
+    provider_priority: 0.30
+  provider_priority:
+    openrouter: 1.0
+    gemini: 0.8
+    nvidia: 0.7
+    novita: 0.6
+    ollama-cloud: 0.75
+    ollama-local: 0.9
+  missing_release_date: 0.0
+```
+
+- `weights` are normalized to sum 1.
+- `provider_priority` values are clamped to 0..1; missing providers default to 1.0.
+- `missing_release_date` is the normalized score used when a model has no release
+  date (0.0 = penalize, 1.0 = treat as newest).
+- Release dates come from the provider catalog (`created` for OpenRouter) and are
+  normalized per run (min/max). Other providers may have no release date.
+
+If `model_ranking` is absent, built-in defaults are used and written on first apply.
+
 ## Tests
 
 ```powershell

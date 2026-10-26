@@ -65,6 +65,7 @@ def test_normalize_model():
         "id": "foo/bar:free",
         "display_name": "Foo Bar (free)",
         "context_window": 12345,
+        "created": None,
         "rate_limits": None,
         "notes": "Free model per OpenRouter listing; rate limits are not provided "
                  "by the listing endpoint (per_request_limits=null).",
@@ -107,7 +108,7 @@ def test_poll_filters_and_normalizes():
     ids = {m["id"] for m in out}
     assert ids == {"foo/bar:free", "google/lyria-3-clip-preview"}
     for m in out:
-        assert set(m.keys()) == {"id", "display_name", "context_window", "rate_limits", "notes"}
+        assert set(m.keys()) == {"id", "display_name", "context_window", "created", "rate_limits", "notes"}
         assert m["rate_limits"] is None
 
 

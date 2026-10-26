@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO_DIR))
 import providers
 
 CACHE_TTL_DAYS = 7
+RANKING = None
 
 
 def load_cache():
@@ -101,6 +102,177 @@ def put_cache(cache, provider, model_id, passed, note, retried):
     }
 
 
+DEFAULT_RANKING_WEIGHTS = {
+    "release_date": 0.40,
+    "context_window": 0.30,
+    "provider_priority": 0.30,
+}
+DEFAULT_PROVIDER_PRIORITY = {
+    "openrouter": 1.0,
+    "gemini": 0.8,
+    "nvidia": 0.7,
+    "novita": 0.6,
+    "ollama-cloud": 0.75,
+    "ollama-local": 0.9,
+}
+
+
+def extract_release_date(m):
+    if not isinstance(m, dict):
+        return None
+    for key in ("_release_date", "release_date", "created"):
+        v = m.get(key)
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            # unix timestamp (seconds or ms)
+            ts = float(v)
+            if ts > 1e12:
+                ts = ts / 1000.0
+            try:
+                return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            except (ValueError, OSError, OverflowError):
+                continue
+        s = str(v).strip()
+        if not s:
+            continue
+        # ISO-ish date
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.date().isoformat()
+        except ValueError:
+            pass
+        # unix string
+        try:
+            ts = float(s)
+            if ts > 1e12:
+                ts = ts / 1000.0
+            return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def load_ranking_config():
+    cfg, _ = load_config()
+    mr = cfg.get("model_ranking") if isinstance(cfg, dict) else None
+    if not isinstance(mr, dict):
+        mr = {}
+    weights = mr.get("weights")
+    if not isinstance(weights, dict):
+        weights = dict(DEFAULT_RANKING_WEIGHTS)
+    # normalize to sum 1
+    try:
+        total = sum(float(v) for v in weights.values())
+    except (TypeError, ValueError):
+        total = 0.0
+    if total > 0:
+        weights = {k: float(v) / total for k, v in weights.items()}
+    else:
+        weights = dict(DEFAULT_RANKING_WEIGHTS)
+    pp = mr.get("provider_priority")
+    if not isinstance(pp, dict):
+        pp = dict(DEFAULT_PROVIDER_PRIORITY)
+    else:
+        # fill defaults for missing providers
+        merged = dict(DEFAULT_PROVIDER_PRIORITY)
+        merged.update(pp)
+        pp = merged
+    try:
+        missing = float(mr.get("missing_release_date", 0.0))
+    except (TypeError, ValueError):
+        missing = 0.0
+    return {"weights": weights, "provider_priority": pp, "missing_release_date": missing}
+
+
+def _to_ts(rd):
+    if rd is None:
+        return None
+    if isinstance(rd, bool):
+        return None
+    if isinstance(rd, (int, float)):
+        ts = float(rd)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        return ts
+    s = str(rd).strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.timestamp()
+    except ValueError:
+        pass
+    try:
+        ts = float(s)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        return ts
+    except ValueError:
+        return None
+
+
+def rank_models(models, ranking=None):
+    if ranking is None:
+        ranking = load_ranking_config()
+    if not models:
+        return models
+    weights = ranking["weights"]
+    pp_map = ranking["provider_priority"]
+    missing = ranking["missing_release_date"]
+
+    # context min/max
+    cws = [m.get("context_window") for m in models if isinstance(m.get("context_window"), (int, float))]
+    cw_min = min(cws) if cws else 0
+    cw_max = max(cws) if cws else 0
+    # release ts min/max
+    ts_list = [_to_ts(m.get("_release_date")) for m in models]
+    ts_valid = [t for t in ts_list if t is not None]
+    ts_min = min(ts_valid) if ts_valid else 0
+    ts_max = max(ts_valid) if ts_valid else 0
+
+    for idx, m in enumerate(models):
+        # context norm
+        cw = m.get("context_window")
+        if isinstance(cw, (int, float)) and cw_max > cw_min:
+            cw_norm = (cw - cw_min) / (cw_max - cw_min)
+        elif isinstance(cw, (int, float)) and cws:
+            cw_norm = 1.0
+        else:
+            cw_norm = 0.0
+        # release norm
+        ts = ts_list[idx]
+        if ts is not None:
+            if ts_max > ts_min:
+                rel_norm = (ts - ts_min) / (ts_max - ts_min)
+            else:
+                rel_norm = 1.0
+        else:
+            rel_norm = missing
+        # provider priority norm
+        prov = m.get("_provider")
+        raw_pp = pp_map.get(prov, 1.0)
+        try:
+            pp_norm = float(raw_pp)
+        except (TypeError, ValueError):
+            pp_norm = 1.0
+        pp_norm = max(0.0, min(1.0, pp_norm))
+
+        score = (weights.get("release_date", 0.0) * rel_norm
+                 + weights.get("context_window", 0.0) * cw_norm
+                 + weights.get("provider_priority", 0.0) * pp_norm)
+        m["_score"] = round(score, 4)
+        m["_score_parts"] = {
+            "release": round(rel_norm, 3),
+            "context": round(cw_norm, 3),
+            "provider": round(pp_norm, 3),
+        }
+
+    return sorted(models, key=lambda m: (-(m.get("_score") or 0), -(m.get("context_window") or 0), str(m.get("id"))))
+
+
 def fetch_provider(slug, cfg):
     if slug == "ollama-local":
         try:
@@ -125,7 +297,7 @@ def fetch_provider(slug, cfg):
     except Exception as e:
         return [], f"import failed: {e}"
     fn = None
-    for name in ("fetch_models", "poll", "fetch", "fetch_free_models", "get_models"):
+    for name in ("poll", "fetch_models", "fetch", "fetch_free_models", "get_models"):
         fn = getattr(mod, name, None)
         if callable(fn):
             break
@@ -335,6 +507,12 @@ def write_config(passing, yaml_mod):
     cfg, _ = load_config()
     if not isinstance(cfg, dict):
         cfg = {}
+    if "model_ranking" not in cfg:
+        cfg["model_ranking"] = {
+            "weights": dict(DEFAULT_RANKING_WEIGHTS),
+            "provider_priority": dict(DEFAULT_PROVIDER_PRIORITY),
+            "missing_release_date": 0.0,
+        }
     best = passing[0]
     best_provider = best.get("_provider", "custom")
     hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
@@ -397,6 +575,9 @@ def main():
         user_list = [x.strip() for x in args.providers.split(",") if x.strip()]
 
     cache = load_cache()
+    ranking = load_ranking_config()
+    global RANKING
+    RANKING = ranking
     configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
 
     all_passing = []
@@ -418,10 +599,14 @@ def main():
             summary.append({"provider": slug, "fetched": 0, "passed": 0, "error": err})
             continue
 
+        for m in models:
+            if isinstance(m, dict) and "_release_date" not in m:
+                m["_release_date"] = extract_release_date(m)
+
         key, _ = providers.get_api_key(cfg)
 
         if not cfg.get("probe", True):
-            cands = sort_candidates(models)[:top_n]
+            cands = rank_models(models, RANKING)[:top_n]
             print(f"  fetched {len(models)} candidate(s); listing-only, including top {len(cands)} (unverified)")
             passed_here = 0
             for m in cands:
@@ -444,11 +629,11 @@ def main():
                     cands = cands[:top_n]
                 print(f"  nvidia: probing {len(cands)} chat-like models (account-gated; agreements matter)")
             except Exception:
-                cands = sort_candidates(models)
+                cands = rank_models(models, RANKING)
                 if top_n is not None:
                     cands = cands[:top_n]
         else:
-            cands = sort_candidates(models)
+            cands = rank_models(models, RANKING)
             if top_n is not None:
                 cands = cands[:top_n]
         print(f"  probing top {len(cands)}")
@@ -494,13 +679,13 @@ def main():
 
     save_cache(cache)
 
-    all_passing.sort(key=lambda m: (-(m.get("context_window") or 0), str(m.get("id"))))
+    all_passing = rank_models(all_passing, RANKING)
 
     print("\n" + "=" * 70)
     print(f"Passing models ({len(all_passing)}):")
     print("=" * 70)
     for i, m in enumerate(all_passing, 1):
-        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}")
+        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
 
     if args.json:
         payload = {
@@ -508,7 +693,18 @@ def main():
             "nightly": nightly,
             "top_n": top_n,
             "passing_count": len(all_passing),
-            "passing": [{k: v for k, v in m.items() if not k.startswith("_")} for m in all_passing],
+            "passing": [
+                {
+                    "id": m.get("id"),
+                    "provider": m.get("_provider"),
+                    "context_window": m.get("context_window"),
+                    "release_date": m.get("_release_date"),
+                    "score": m.get("_score"),
+                    "score_parts": m.get("_score_parts"),
+                    "base_url": m.get("_base_url"),
+                }
+                for m in all_passing
+            ],
             "summary": summary,
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
