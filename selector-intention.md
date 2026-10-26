@@ -148,8 +148,9 @@ and runs the rest.
 3. **Ordering weights:** parked until current providers are working; revisit later.
 4. **Nous:** review `hermes-model-selector.py` vs `select-models.py` before deciding
    merge vs keep-separate (see review below). Do not merge yet.
-5. **Nightly schedule:** keep it uniform with the existing nightly task (3 AM)
-   rather than a separate 4 AM slot.
+5. **Nightly schedule:** default to the existing 3 AM nightly task (uniform); expose the
+   time as a script option (e.g. `--schedule-time` / task registration param) so it
+   can be changed without editing.
 
 ## Review: `hermes-model-selector.py` vs `select-models.py` (do not merge yet)
 
