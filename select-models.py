@@ -227,7 +227,7 @@ def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
             reasoning=effort, max_tokens=PROBE_MAX_TOKENS)
         if retried:
             retried_overall = True
-        print(f"{'PASS' if passed and not retried else 'fail'} ({note})")
+        print(f"{'PASS' if passed else 'fail'} ({note})")
         if passed:
             chosen_note = f"{note} (effort={effort})"
             # store chosen effort by appending to note only; pass already secured
