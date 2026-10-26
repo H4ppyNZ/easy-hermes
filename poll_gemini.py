@@ -8,6 +8,13 @@ import sys
 import time
 import urllib.error
 import urllib.parse
+try:
+    import safe_url
+except Exception:
+    class safe_url:  # type: ignore
+        @staticmethod
+        def safe_next(nxt, base):
+            return nxt
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,14 +39,20 @@ AUTH_ENV_VARS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
 
 _env_base = os.environ.get("GEMINI_BASE_URL") or os.environ.get("GOOGLE_BASE_URL") or os.environ.get("GEMINI_MODELS_URL")
 if _env_base:
-    _b = _env_base.strip().rstrip("/")
-    if not _b.endswith("/models"):
-        _b = _b + "/models"
-    GEMINI_MODELS_URL = _b
-    MODELS_URL = _b
-    API_URL = _b
-    ENDPOINT = _b
-    DEFAULT_ENDPOINT = _b
+    try:
+        import urllib.parse as _up
+        _host = _up.urlsplit(_env_base).netloc.lower()
+    except Exception:
+        _host = ""
+    if _host in ("", "generativelanguage.googleapis.com"):
+        _b = _env_base.strip().rstrip("/")
+        if not _b.endswith("/models"):
+            _b = _b + "/models"
+        GEMINI_MODELS_URL = _b
+        MODELS_URL = _b
+        API_URL = _b
+        ENDPOINT = _b
+        DEFAULT_ENDPOINT = _b
 
 _BASE_URLOPEN = urllib.request.urlopen
 urlopen = urllib.request.urlopen
@@ -486,7 +499,7 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
     all_raw = []
     parsed_rate_limits = rate_limits
 
-    url = _with_key(start_url, api_key)
+    url = start_url
     while url:
         if url in visited:
             break
@@ -562,8 +575,10 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
         all_raw.extend([m for m in page if isinstance(m, dict)])
 
         nxt = _next_url(data, url) if isinstance(data, dict) else None
+        if nxt:
+            nxt = safe_url.safe_next(nxt, start_url)
         if nxt and nxt not in visited:
-            url = _with_key(nxt, api_key) if "key=" not in nxt else nxt
+            url = nxt
         else:
             url = None
 

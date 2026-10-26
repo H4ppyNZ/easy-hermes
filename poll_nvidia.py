@@ -5,6 +5,14 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
+try:
+    import safe_url
+except Exception:
+    class safe_url:  # type: ignore
+        @staticmethod
+        def safe_next(nxt, base):
+            return nxt
 import urllib.request
 from urllib.parse import urljoin
 from pathlib import Path
@@ -27,12 +35,20 @@ DEFAULT_BACKOFF = (1.0, 2.0, 4.0)
 
 _env_base = os.environ.get("NVIDIA_BASE_URL") or os.environ.get("NIM_BASE_URL")
 if _env_base:
-    _b = _env_base.rstrip("/")
-    if not _b.endswith("/models"):
-        _b = _b + "/models"
-    NVIDIA_MODELS_URL = _b
-    MODELS_URL = _b
-    API_URL = _b
+    try:
+        import urllib.parse as _up
+        _host = _up.urlsplit(_env_base).netloc.lower()
+    except Exception:
+        _host = ""
+    if _host in ("", "integrate.api.nvidia.com"):
+        _b = _env_base.rstrip("/")
+        if not _b.endswith("/models"):
+            _b = _b + "/models"
+        NVIDIA_MODELS_URL = _b
+        MODELS_URL = _b
+        API_URL = _b
+        # update ENDPOINT/DEFAULT? keep default host guard only
+
 
 _BASE_URLOPEN = urllib.request.urlopen
 urlopen = urllib.request.urlopen
@@ -424,6 +440,7 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
     all_raw = []
     parsed_rate_limits = rate_limits
 
+    base_origin_url = url
     while url:
         if url in visited:
             break
@@ -493,7 +510,9 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
         all_raw.extend([m for m in page if isinstance(m, dict)])
 
         nxt = _next_url(data, url) if isinstance(data, dict) else None
-        url = nxt
+        url = safe_url.safe_next(nxt, base_origin_url) if nxt else None
+        if url and url in visited:
+            url = None
 
     filtered = filter_models(all_raw)
 
@@ -505,8 +524,14 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
 fetch_nvidia_models = fetch_models
 list_models = fetch_models
 get_models = fetch_models
-poll = fetch_models
-poll_models = fetch_models
+def poll(*a, **kw):
+    try:
+        return fetch_models(*a, **kw)
+    except (Exception, SystemExit):
+        return []
+
+
+poll_models = poll
 poll_nvidia = fetch_models
 fetch = fetch_models
 
