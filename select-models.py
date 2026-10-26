@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,7 @@ import providers
 
 CACHE_TTL_DAYS = 7
 RANKING = None
+REASONING_MODE = None
 
 
 def load_cache():
@@ -106,6 +108,7 @@ DEFAULT_RANKING_WEIGHTS = {
     "release_date": 0.40,
     "context_window": 0.30,
     "provider_priority": 0.30,
+    "reasoning": 0.0,
 }
 DEFAULT_PROVIDER_PRIORITY = {
     "openrouter": 1.0,
@@ -154,6 +157,15 @@ def extract_release_date(m):
         except ValueError:
             continue
     return None
+
+
+def reasoning_score_from_note(note):
+    if not note:
+        return 0.0
+    m = re.search(r"reasoning=(\d+)ch", str(note))
+    if m:
+        return 1.0 if int(m.group(1)) > 0 else 0.0
+    return 0.0
 
 
 def load_ranking_config():
@@ -263,7 +275,8 @@ def rank_models(models, ranking=None):
 
         score = (weights.get("release_date", 0.0) * rel_norm
                  + weights.get("context_window", 0.0) * cw_norm
-                 + weights.get("provider_priority", 0.0) * pp_norm)
+                 + weights.get("provider_priority", 0.0) * pp_norm
+                 + weights.get("reasoning", 0.0) * m.get("_reasoning", 0.0))
         m["_score"] = round(score, 4)
         m["_score_parts"] = {
             "release": round(rel_norm, 3),
@@ -346,7 +359,7 @@ import urllib.request
 import urllib.error
 
 
-def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None):
+def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, reasoning=None):
     url = base_url.rstrip("/")
     if not url.endswith("/v1"):
         url = url + "/v1"
@@ -356,6 +369,8 @@ def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None):
         "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
         "max_tokens": 256,
     }
+    if reasoning is not None:
+        payload["reasoning_effort"] = reasoning
     headers = {"Content-Type": "application/json", "User-Agent": "easy-hermes/select-models"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -374,9 +389,12 @@ def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None):
             choice = (data.get("choices") or [{}])[0]
             msg = choice.get("message", {}) if isinstance(choice, dict) else {}
             content = (msg.get("content") or "").strip()
+            reasoning_text = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
             if content:
-                return True, f"ok: {content[:40]}", retried
+                return True, f"ok: {content[:40]} (reasoning={len(reasoning_text)}ch)", retried
             fr = choice.get("finish_reason") if isinstance(choice, dict) else None
+            if reasoning_text and fr == "length":
+                return False, f"budget exhausted thinking ({len(reasoning_text)}ch)", retried
             note = f"empty content (finish_reason={fr})" if fr else "empty content"
             return False, note, retried
         except urllib.error.HTTPError as e:
@@ -465,12 +483,12 @@ def _ollama_local_probe(model_id, base_url, timeout=60):
         return False, f"{type(e).__name__}: {e}", False
 
 
-def probe(slug, cfg, model_id, api_key, nightly, timeout=None):
+def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
     kind = cfg.get("probe_kind")
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
         t = timeout if timeout else cfg.get("probe_timeout", 30)
-        return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
+        return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"), reasoning=reasoning)
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
         t = timeout if timeout else cfg.get("probe_timeout", 30)
@@ -572,7 +590,12 @@ def main():
                     help="Print the current ranking matrix and exit")
     ap.add_argument("--model", action="append", metavar="MODEL_ID",
                     help="Retest a specific model id on the selected providers (repeatable)")
+    ap.add_argument("--reasoning", action="store_true",
+                    help="Probe with reasoning_effort=high and report reasoning chars")
     args = ap.parse_args()
+
+    global REASONING_MODE
+    REASONING_MODE = "high" if getattr(args, "reasoning", False) else None
 
     # --- ranking matrix management (no probing) ---
     if args.show_ranking or args.set_weight or args.set_priority or args.set_missing_release is not None:
@@ -681,7 +704,7 @@ def main():
                     passed, note, retried = cached_passed, cached_note, cached_retried
                     note = f"[cache] {note}"
                 else:
-                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"))
+                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=REASONING_MODE)
                     put_cache(cache, slug, mid, passed, note, retried)
                 clean = bool(passed) and not bool(retried)
                 print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
@@ -722,6 +745,7 @@ def main():
                 m["_base_url"] = cfg.get("probe_base_url")
                 m["_probe_ok"] = None
                 m["_probe_note"] = "unverified (listing only, no probe)"
+                m["_reasoning"] = 0.0
                 all_passing.append(m)
                 passed_here += 1
             summary.append({"provider": slug, "fetched": len(models), "probed": 0,
@@ -761,6 +785,7 @@ def main():
                 m["_base_url"] = cfg.get("probe_base_url")
                 m["_probe_ok"] = None
                 m["_probe_note"] = "unverified (no API key to probe)"
+                m["_reasoning"] = 0.0
                 all_passing.append(m)
                 passed_here += 1
                 print(f"    UNVERIFIED {mid}  (no API key to probe)")
@@ -771,13 +796,14 @@ def main():
                 ok, note, retried = cached_passed, cached_note, cached_retried
                 note = f"[cache] {note}"
             else:
-                ok, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"))
+                ok, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=REASONING_MODE)
                 put_cache(cache, slug, mid, ok, note, retried)
             clean = bool(ok) and not bool(retried)
             m["_provider"] = slug
             m["_base_url"] = cfg.get("probe_base_url")
             m["_probe_ok"] = clean
             m["_probe_note"] = note
+            m["_reasoning"] = reasoning_score_from_note(note)
             if clean:
                 all_passing.append(m)
                 passed_here += 1

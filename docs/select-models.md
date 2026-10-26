@@ -38,7 +38,9 @@ python select-models.py --prefer-local --dry-run
 | `--nightly` | Probe top-12 (out-of-hours budget) |
 | `--top N` | Override probe budget |
 | `--full` | Probe every candidate |
+| `--reasoning` | Probe with reasoning_effort=high and report reasoning chars |
 | `--providers` | Comma-separated provider slugs |
+| `--model` | Retest a specific model id on selected providers |
 | `--prefer-local` | Include local Ollama |
 | `--apply` | Write config (default when not dry-run) |
 | `--json` | Emit JSON summary |
@@ -89,6 +91,7 @@ model_ranking:
     release_date: 0.40
     context_window: 0.30
     provider_priority: 0.30
+    reasoning: 0.0
   provider_priority:
     openrouter: 1.0
     gemini: 1.0
@@ -104,6 +107,7 @@ model_ranking:
 - `provider_priority` values are clamped to 0..1; missing providers default to 1.0 (neutral).
 - `missing_release_date` is the normalized score used when a model has no release
   date (0.0 = penalize, 1.0 = treat as newest).
+- `reasoning` is 1.0 for models that emit reasoning content when probed with `--reasoning`.
 - Release dates come from the provider catalog (`created` for OpenRouter) and are
   normalized per run (min/max). Other providers may have no release date.
 
