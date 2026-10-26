@@ -38,6 +38,7 @@ PROVIDERS = {
         "probe": True,
         "probe_kind": "openai",
         "probe_base_url": "https://integrate.api.nvidia.com/v1",
+        "probe_timeout": 15,
         "default_enabled": True,
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
@@ -101,6 +102,56 @@ PROVIDERS = {
     # Nous Portal is handled by hermes-model-selector.py (cache-based) for now.
     # A poll_nous.py will be added in Phase 4 to match this contract.
 }
+
+def validate_key(cfg, timeout=10):
+    """Make one authenticated smoke request to confirm an API key works.
+
+    Returns (ok: bool, note: str). Providers that do not require a key (or
+    have none set) are considered OK. Network errors other than auth failures
+    are reported but do not fail validation, so a flaky endpoint does not
+    block a run.
+    """
+    import os
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+    import json
+
+    key, key_name = get_api_key(cfg)
+    env_any = cfg.get("env_any", []) or []
+    requires = cfg.get("requires_key", bool(env_any))
+    if not key:
+        if requires:
+            return False, "missing required API key"
+        return True, "no key required"
+
+    base = (cfg.get("probe_base_url") or "").rstrip("/")
+    kind = cfg.get("probe_kind")
+    try:
+        if kind == "gemini":
+            url = base + "/models?key=" + urllib.parse.quote(key, safe="")
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        else:
+            url = base + "/models"
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read()
+        return True, f"key OK ({key_name})"
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            try:
+                detail = e.read().decode("utf-8", errors="replace")[:120]
+            except Exception:
+                detail = ""
+            return False, f"key rejected (HTTP {e.code}): {detail}".strip()
+        # Non-auth HTTP errors (404/429/5xx) are not key problems.
+        return True, f"key not rejected (HTTP {e.code})"
+    except Exception as e:
+        return True, f"key check inconclusive: {e}"
+
 
 # Providers that are always attempted unless disabled by the user.
 ALWAYS_TRY = [p for p, cfg in PROVIDERS.items() if cfg["default_enabled"]]

@@ -47,6 +47,24 @@ def cache_key(provider, model_id):
     return f"{provider}::{model_id}"
 
 
+def _failure_class(e):
+    if e.get("failure_class"):
+        return e["failure_class"]
+    if e.get("passed"):
+        return "standard"
+    note = (e.get("note") or "").lower()
+    if " 404" in note or "http 404" in note or "410" in note or "not found" in note or "gone" in note:
+        return "permanent"
+    if ("429" in note or "500" in note or "502" in note or "503" in note
+            or "timeout" in note or "empty content" in note or "timed out" in note):
+        return "transient"
+    return "standard"
+
+
+def _ttl_days(fc):
+    return {"permanent": 30, "transient": 1, "standard": CACHE_TTL_DAYS}.get(fc, CACHE_TTL_DAYS)
+
+
 def cached_result(cache, provider, model_id, refresh):
     if refresh:
         return None
@@ -55,7 +73,8 @@ def cached_result(cache, provider, model_id, refresh):
         return None
     try:
         probed = datetime.fromisoformat(e["probed_at"])
-        if (datetime.now(timezone.utc) - probed).days >= CACHE_TTL_DAYS:
+        fc = _failure_class(e)
+        if (datetime.now(timezone.utc) - probed).days >= _ttl_days(fc):
             return None
     except Exception:
         return None
@@ -63,10 +82,21 @@ def cached_result(cache, provider, model_id, refresh):
 
 
 def put_cache(cache, provider, model_id, passed, note, retried):
+    fc = "standard" if passed else None
+    low = str(note).lower()
+    if not passed:
+        if "404" in low or "410" in low or "not found" in low or "gone" in low:
+            fc = "permanent"
+        elif ("429" in low or "500" in low or "502" in low or "503" in low
+              or "timeout" in low or "empty content" in low or "timed out" in low):
+            fc = "transient"
+        else:
+            fc = "standard"
     cache.setdefault("entries", {})[cache_key(provider, model_id)] = {
         "passed": bool(passed),
         "note": str(note),
         "retried": bool(retried),
+        "failure_class": fc,
         "probed_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -151,7 +181,7 @@ def _openai_probe(model_id, base_url, api_key, timeout=30):
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
-        "max_tokens": 16,
+        "max_tokens": 64,
     }
     headers = {"Content-Type": "application/json", "User-Agent": "easy-hermes/select-models"}
     if api_key:
@@ -171,13 +201,23 @@ def _openai_probe(model_id, base_url, api_key, timeout=30):
             content = (msg.get("content") or "").strip()
             if content:
                 return True, f"ok: {content[:40]}", retried
-            return False, "empty content", retried
+            fr = choice.get("finish_reason") if isinstance(choice, dict) else None
+            note = f"empty content (finish_reason={fr})" if fr else "empty content"
+            return False, note, retried
         except urllib.error.HTTPError as e:
             code = e.code
+            body = ""
+            try:
+                body = e.read().decode(errors="replace")
+            except Exception:
+                pass
+            low = body.lower()
+            if code == 429 and ("per day" in low or "daily" in low or "limit: 0" in low.replace(" ", "")):
+                return False, f"HTTP 429: daily quota exceeded (not retryable)", retried
             if code == 429 or code >= 500:
                 last = f"HTTP {code} (retrying)"
                 continue
-            return False, f"HTTP {code}: {e.read().decode()[:80]}", retried
+            return False, f"HTTP {code}: {body[:80]}", retried
         except Exception as e:
             return False, f"{type(e).__name__}: {e}", retried
     return False, last, retried
@@ -189,24 +229,53 @@ def _gemini_probe(model_id, api_key, base_url, timeout=30):
         mid = "models/" + mid
     url = f"{base_url.rstrip('/')}/{mid}:generateContent?key={api_key}"
     payload = {"contents": [{"parts": [{"text": "Say 'ok' and nothing else."}]}],
-               "generationConfig": {"maxOutputTokens": 16}}
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                headers={"Content-Type": "application/json",
-                                         "User-Agent": "easy-hermes/select-models"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
-        cands = data.get("candidates") or []
-        if cands:
-            parts = (cands[0].get("content", {}) or {}).get("parts", [])
-            text = "".join(p.get("text", "") for p in parts).strip()
-            if text:
-                return True, f"ok: {text[:40]}", False
-        return False, "empty content", False
-    except urllib.error.HTTPError as e:
-        return False, f"HTTP {e.code}: {e.read().decode()[:80]}", False
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}", False
+               "generationConfig": {"maxOutputTokens": 64}}
+    retried = False
+    last = "no attempt"
+    for delay in (0, 5, 15):
+        if delay:
+            retried = True
+            time.sleep(delay)
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(),
+                                    headers={"Content-Type": "application/json",
+                                             "User-Agent": "easy-hermes/select-models"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read())
+            cands = data.get("candidates") or []
+            if cands:
+                parts = (cands[0].get("content", {}) or {}).get("parts", [])
+                text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+                if text:
+                    return True, f"ok: {text[:40]}", retried
+                fr = cands[0].get("finishReason")
+                if fr:
+                    last = f"empty content (finishReason={fr})"
+                else:
+                    last = "empty content"
+                return False, last, retried
+            pf = data.get("promptFeedback") or {}
+            br = pf.get("blockReason")
+            if br:
+                return False, f"blocked: {br}", retried
+            return False, "empty content", retried
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode(errors="replace")
+            except Exception:
+                pass
+            code = e.code
+            low = body.lower()
+            if code == 429 and ("per day" in low or "daily" in low or "limit: 0" in low.replace(" ", "")):
+                return False, "HTTP 429: daily quota exceeded (not retryable)", retried
+            if code == 429 or code >= 500:
+                last = f"HTTP {code}: {body[:80]}"
+                continue
+            return False, f"HTTP {code}: {body[:80]}", retried
+        except Exception as e:
+            return False, f"{type(e).__name__}: {e}", retried
+    return False, last, retried
 
 
 def _ollama_local_probe(model_id, base_url, timeout=60):
@@ -221,14 +290,16 @@ def _ollama_local_probe(model_id, base_url, timeout=60):
         return False, f"{type(e).__name__}: {e}", False
 
 
-def probe(slug, cfg, model_id, api_key, nightly):
+def probe(slug, cfg, model_id, api_key, nightly, timeout=None):
     kind = cfg.get("probe_kind")
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
-        return _openai_probe(model_id, base, api_key)
+        t = timeout if timeout else cfg.get("probe_timeout", 30)
+        return _openai_probe(model_id, base, api_key, timeout=t)
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
-        return _gemini_probe(model_id, api_key, base)
+        t = timeout if timeout else cfg.get("probe_timeout", 30)
+        return _gemini_probe(model_id, api_key, base, timeout=t)
     if kind == "ollama-local":
         try:
             import hermes_ollama_selector as hos
@@ -309,11 +380,15 @@ def main():
     ap.add_argument("--apply", action="store_true", help="Write config")
     ap.add_argument("--json", action="store_true", help="Emit JSON summary")
     ap.add_argument("--top", type=int, help="Override probe budget")
+    ap.add_argument("--full", action="store_true", help="Probe every candidate (ignore top-N budget)")
     args = ap.parse_args()
 
     dry_run = args.dry_run
     nightly = args.nightly
-    top_n = args.top if args.top else (12 if nightly else 3)
+    if args.full:
+        top_n = None
+    else:
+        top_n = args.top if args.top else (12 if nightly else 3)
 
     user_list = None
     if args.providers:
@@ -328,6 +403,13 @@ def main():
     for slug in configured:
         cfg = providers.PROVIDERS[slug]
         print(f"\n=== {cfg['display']} ({slug}) ===")
+        ok, vnote = providers.validate_key(cfg)
+        if not ok:
+            print(f"  key validation failed: {vnote}")
+            summary.append({"provider": slug, "fetched": 0, "passed": 0, "error": vnote})
+            continue
+        if vnote and vnote != "no key required":
+            print(f"  {vnote}")
         models, err = fetch_provider(slug, cfg)
         if err:
             print(f"  fetch error: {err}")
@@ -352,7 +434,21 @@ def main():
             continue
 
         print(f"  fetched {len(models)} candidate(s)")
-        cands = sort_candidates(models)[:top_n]
+        if slug == "nvidia":
+            try:
+                import poll_nvidia as _pn
+                cands = [m for m in models if _pn._is_chat_like(m.get("id") or "")]
+                if top_n is not None:
+                    cands = cands[:top_n]
+                print(f"  nvidia: probing {len(cands)} chat-like models (account-gated; agreements matter)")
+            except Exception:
+                cands = sort_candidates(models)
+                if top_n is not None:
+                    cands = cands[:top_n]
+        else:
+            cands = sort_candidates(models)
+            if top_n is not None:
+                cands = cands[:top_n]
         print(f"  probing top {len(cands)}")
 
         can_probe = True
@@ -380,7 +476,7 @@ def main():
                 ok, note, retried = cached_passed, cached_note, cached_retried
                 note = f"[cache] {note}"
             else:
-                ok, note, retried = probe(slug, cfg, mid, key, nightly)
+                ok, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"))
                 put_cache(cache, slug, mid, ok, note, retried)
             clean = bool(ok) and not bool(retried)
             m["_provider"] = slug
