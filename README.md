@@ -136,3 +136,39 @@ Caveats (read before relying on the output):
 Auth env vars: `OLLAMA_API_KEY` (preferred) or `OLLAMA_CLOUD_API_KEY`.
 Output: `out/ollama-cloud.json`.
 
+## Status (Phase 2)
+
+- **Phase 2 complete and pushed to `main`.** All 5 provider pollers, plus
+  `providers.py` (registry) and `select-models.py` (central selector), are
+  merged.
+- **53 tests pass** (`python -m pytest -q`, no network).
+
+## Environment / API keys
+
+Keys are stored in Windows user env (`HKEY_CURRENT_USER\Environment`), not
+shell env:
+
+- `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`, `OLLAMA_API_KEY`
+- `OPENROUTER_API_KEY` is optional (not set).
+
+## Known issue (resolved)
+
+`python` used to resolve to the bash-only `~/.local/bin/python` symlink and
+trigger the Windows Store installer. Fixed by prepending the uv python dir to
+the user PATH and disabling the Store app-execution alias. `python --version`
+now reports 3.11.15.
+
+## Development / testing
+
+- Tests: `python -m pytest -q` (53 tests, no network)
+- Selector preview: `python select-models.py --dry-run`
+- Selector preview (JSON): `python select-models.py --dry-run --json`
+- Apply: `python select-models.py`
+- Poller smoke (no key): `python poll_openrouter.py --json`
+
+## Next steps (Phase 3)
+
+1. Wire `select-models.py` into `hermes-setup.ps1` + the nightly task.
+2. Add `poll_nous.py` and retire the cache-only Nous path.
+3. Add user-tunable ordering weights (`model_ranking` in config.yaml, `--order`).
+

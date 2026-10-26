@@ -1,5 +1,37 @@
 # select-intention.md — Goal & Design for centralized free-model selection
 
+## Current status (merged from handover.md)
+
+- **Phase 2 complete and pushed to `main`.** All 5 provider pollers
+  (`poll_openrouter.py`, `poll_nvidia.py`, `poll_gemini.py`,
+  `poll_ollama_cloud.py`, `poll_novita.py`) are merged, along with
+  `providers.py` (registry) and `select-models.py` (central selector).
+- **53 tests pass** (`python -m pytest -q`, no network).
+- **Keys already set** in Windows user env (`HKEY_CURRENT_USER\Environment`),
+  not shell env: `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`,
+  `OLLAMA_API_KEY`. `OPENROUTER_API_KEY` is optional (not set).
+- **Known issue (resolved):** `python` used to resolve to the bash-only
+  `~/.local/bin/python` symlink and trigger the Windows Store installer.
+  Fixed by prepending the uv python dir to the user PATH and disabling the
+  Store app-execution alias. `python --version` now reports 3.11.15.
+
+### Useful commands
+
+- Tests: `python -m pytest -q` (53 tests, no network)
+- Selector preview: `python select-models.py --dry-run`
+- Selector preview (JSON): `python select-models.py --dry-run --json`
+- Apply: `python select-models.py`
+- Poller smoke (no key): `python poll_openrouter.py --json`
+- Per-provider detail: `process.md`
+
+### Next steps (Phase 3)
+
+1. Wire `select-models.py` into `hermes-setup.ps1` + the nightly task.
+2. Add `poll_nous.py` and retire the cache-only Nous path.
+3. Add user-tunable ordering weights (`model_ranking` in config.yaml, `--order`).
+
+---
+
 ## Goal
 
 A person with **no Hermes/AI/coding experience** installs `easy-hermes` and, with
