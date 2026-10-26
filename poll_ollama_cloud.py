@@ -9,6 +9,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+try:
+    import safe_url
+except Exception:
+    class safe_url:  # type: ignore
+        @staticmethod
+        def safe_next(nxt, base):
+            return nxt
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -318,6 +325,7 @@ def fetch_endpoint(url, api_key=None, timeout=20, retries=3):
     collected = list(collected_raw)
     while pages < MAX_PAGES:
         nxt = next_page_url(current_payload, current_url, collected)
+        nxt = safe_url.safe_next(nxt, url)
         if not nxt or nxt in visited:
             break
         visited.add(nxt)
@@ -407,7 +415,10 @@ def fetch_ollama_cloud_models(*a, **kw):
 
 
 def poll(*a, **kw):
-    return fetch_models(*a, **kw)
+    try:
+        return fetch_models(*a, **kw)
+    except (Exception, SystemExit):
+        return []
 
 
 def poll_ollama_cloud(*a, **kw):

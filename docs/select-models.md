@@ -116,5 +116,5 @@ If `model_ranking` is absent, built-in defaults are used and written on first ap
 ## Tests
 
 ```powershell
-python -m pytest -q   # no network
+python -m pytest -q   # 60 tests, no network
 ```

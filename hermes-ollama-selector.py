@@ -31,6 +31,8 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from datetime import date
 
 for _stream in (sys.stdout, sys.stderr):
@@ -303,8 +305,8 @@ def main():
     }
     if apply or dry_run or True:
         OLLAMA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(OLLAMA_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(cache, f, indent=2)
+        import atomic_io
+        atomic_io.atomic_write_json(OLLAMA_CACHE_PATH, cache, indent=2)
         print(f"\nSaved cache to {OLLAMA_CACHE_PATH}")
 
     print(f"\n{'='*70}")
@@ -391,8 +393,10 @@ def main():
         print(f"Updated {CONFIG_PATH}")
     except Exception as e:
         print(f"  ruamel writer unavailable ({e}); falling back to yaml.dump (comments lost)")
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        import atomic_io, io
+        buf = io.StringIO()
+        yaml.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
         print(f"Updated {CONFIG_PATH}")
 
     print("Done. Run 'hermes fallback list' to verify.")

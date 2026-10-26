@@ -141,7 +141,7 @@ Output: `out/ollama-cloud.json`.
 - **Phase 2 complete and pushed to `main`.** All 5 provider pollers, plus
   `providers.py` (registry) and `select-models.py` (central selector), are
   merged.
-- **53 tests pass** (`python -m pytest -q`, no network).
+- **60 tests pass** (`python -m pytest -q`, no network).
 
 ## Environment / API keys
 
@@ -170,5 +170,5 @@ now reports 3.11.15.
 
 1. Wire `select-models.py` into `hermes-setup.ps1` + the nightly task.
 2. Add `poll_nous.py` and retire the cache-only Nous path.
-3. Add user-tunable ordering weights (`model_ranking` in config.yaml, `--order`).
+3. **Review ordering weights/merge decision** (configurable `model_ranking` matrix and `--show-ranking`/`--set-*` flags are implemented; decide later whether one selector owns `model.default`).
 

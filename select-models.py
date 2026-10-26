@@ -20,9 +20,14 @@ HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (LOCALAPPDATA / "hermes"))
 CONFIG_PATH = HERMES_HOME / "config.yaml"
 CACHE_PATH = HERMES_HOME / "cache" / "free_model_probe_cache.json"
 REPO_DIR = Path(__file__).resolve().parent
+LAST_PASSING_PATH = REPO_DIR / "out" / "last_selection.json"
 sys.path.insert(0, str(REPO_DIR))
 
 import providers
+try:
+    import chain_delta
+except Exception:
+    chain_delta = None
 
 CACHE_TTL_DAYS = 7
 RANKING = None
@@ -44,9 +49,56 @@ def load_cache():
 def save_cache(cache):
     try:
         CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        import atomic_io
+        atomic_io.atomic_write_json(CACHE_PATH, cache, indent=2)
     except Exception as e:
         print(f"  (cache write failed: {e})", file=sys.stderr)
+
+
+def save_last_selection(models):
+    try:
+        LAST_PASSING_PATH.parent.mkdir(parents=True, exist_ok=True)
+        import atomic_io
+        atomic_io.atomic_write_json(LAST_PASSING_PATH, models, indent=2, default=str)
+    except Exception as e:
+        print(f"  (last selection write failed: {e})", file=sys.stderr)
+
+
+def load_last_selection():
+    try:
+        if LAST_PASSING_PATH.exists():
+            return json.loads(LAST_PASSING_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
+
+def build_ranking_from_mr(mr):
+    if not isinstance(mr, dict):
+        mr = {}
+    weights = mr.get("weights")
+    if not isinstance(weights, dict):
+        weights = dict(DEFAULT_RANKING_WEIGHTS)
+    try:
+        total = sum(float(v) for v in weights.values())
+    except (TypeError, ValueError):
+        total = 0.0
+    if total > 0:
+        weights = {k: float(v) / total for k, v in weights.items()}
+    else:
+        weights = dict(DEFAULT_RANKING_WEIGHTS)
+    pp = mr.get("provider_priority")
+    if not isinstance(pp, dict):
+        pp = dict(DEFAULT_PROVIDER_PRIORITY)
+    else:
+        merged = dict(DEFAULT_PROVIDER_PRIORITY)
+        merged.update(pp)
+        pp = merged
+    try:
+        missing = float(mr.get("missing_release_date", 0.0))
+    except (TypeError, ValueError):
+        missing = 0.0
+    return {"weights": weights, "provider_priority": pp, "missing_release_date": missing}
 
 
 def cache_key(provider, model_id):
@@ -389,7 +441,11 @@ def fetch_provider(slug, cfg):
     except Exception as e:
         return [], f"import failed: {e}"
     fn = None
-    for name in ("poll", "fetch_models", "fetch", "fetch_free_models", "get_models"):
+    preferred = cfg.get("fetch_fn")
+    names = ([preferred] if preferred else []) + ["poll", "fetch_models", "fetch", "fetch_free_models", "get_models"]
+    for name in names:
+        if not name:
+            continue
         fn = getattr(mod, name, None)
         if callable(fn):
             break
@@ -566,7 +622,7 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
         t = timeout if timeout else cfg.get("probe_timeout", 30)
-        if REASONING_MODE:
+        if reasoning:
             return probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=t)
         return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
     if kind == "gemini":
@@ -642,8 +698,11 @@ def write_config(passing, yaml_mod):
     cfg["fallback_providers"] = list(existing) + new_fb
 
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            yaml_mod.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        import atomic_io
+        import io
+        buf = io.StringIO()
+        yaml_mod.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
         print(f"Updated {CONFIG_PATH}")
     except Exception as e:
         print(f"ERROR writing config: {e}", file=sys.stderr)
@@ -682,6 +741,7 @@ def main():
         cfg, yaml_mod = load_config()
         if not isinstance(cfg, dict):
             cfg = {}
+        before_ids = chain_delta.chain_ids_from_config(cfg) if chain_delta is not None else []
         mr = cfg.setdefault("model_ranking", {})
         if not isinstance(mr, dict):
             mr = {}
@@ -734,14 +794,28 @@ def main():
 
         if (args.set_weight or args.set_priority or args.set_missing_release is not None) and not args.dry_run:
             try:
-                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                    yaml_mod.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                import atomic_io
+                import io
+                buf = io.StringIO()
+                yaml_mod.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
                 print(f"Updated {CONFIG_PATH}")
             except Exception as e:
                 print(f"ERROR writing config: {e}", file=sys.stderr)
                 sys.exit(1)
         elif (args.set_weight or args.set_priority or args.set_missing_release is not None) and args.dry_run:
             print("DRY RUN -- config not written.")
+        if chain_delta is not None:
+            last = load_last_selection()
+            if last:
+                ranking = build_ranking_from_mr(mr)
+                models = [dict(m) for m in last if isinstance(m, dict)]
+                ranked = rank_models(models, ranking)
+                after_ids = [m.get("id") if isinstance(m, dict) else str(m) for m in ranked]
+                print("\nDraft delta (cached selection re-ranked):")
+                print(chain_delta.format_delta(before_ids, after_ids))
+            else:
+                print("\n(no cached selection to re-rank; run a full pass first)")
         sys.exit(0)
 
     dry_run = args.dry_run
@@ -895,6 +969,8 @@ def main():
 
     all_passing = rank_models(all_passing, RANKING)
 
+    save_last_selection(all_passing)
+
     print("\n" + "=" * 70)
     print(f"Passing models ({len(all_passing)}):")
     print("=" * 70)
@@ -942,7 +1018,7 @@ def main():
         sys.exit(0)
 
     import yaml
-    write_config(all_passing, False, yaml)
+    write_config(all_passing, yaml)
     print("Done.")
 
 

@@ -17,6 +17,13 @@ import sys
 import time
 import urllib.error
 import urllib.parse
+try:
+    import safe_url
+except Exception:
+    class safe_url:  # type: ignore
+        @staticmethod
+        def safe_next(nxt, base):
+            return nxt
 import urllib.request
 from pathlib import Path
 
@@ -107,6 +114,15 @@ def _build_headers(api_key=None):
 
 
 def http_get_json(url, headers=None, timeout=DEFAULT_TIMEOUT, backoff=BACKOFF):
+    try:
+        import poll_base
+    except Exception:
+        poll_base = None
+    if poll_base is not None:
+        return poll_base.http_get_json(
+            url, headers=headers, timeout=timeout, backoff=backoff,
+            urlopen=urllib.request.urlopen, sleep=time.sleep)
+    # fallback (should not happen)
     headers = headers or {}
     last_error = None
     delays = (0,) + tuple(backoff)
@@ -202,6 +218,7 @@ def fetch_all_models(api_key=None, timeout=DEFAULT_TIMEOUT, endpoint=ENDPOINT,
             models.extend(data)
 
         nxt = _next_url(data, url, endpoint)
+        nxt = safe_url.safe_next(nxt, endpoint)
         url = nxt if (nxt and nxt not in visited) else None
 
     seen = set()

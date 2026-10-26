@@ -54,7 +54,9 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from datetime import datetime, date
 
 # ── Console encoding ──
@@ -185,8 +187,8 @@ def save_fallback_cache(cache: dict) -> None:
     cache["_cached_at"] = time.time()
     cache["_probe_version"] = PROBE_VERSION
     FALLBACK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(FALLBACK_CACHE_PATH, "w") as f:
-        json.dump(cache, f, indent=2)
+    import atomic_io
+    atomic_io.atomic_write_json(FALLBACK_CACHE_PATH, cache, indent=2)
     print(f"  Saved probe cache to {FALLBACK_CACHE_PATH}")
 
 
@@ -344,7 +346,8 @@ def get_openrouter_release_date(model_id: str):
 def get_openrouter_web_release_date(model_id: str):
     import re
     try:
-        req = urllib.request.Request(f"https://openrouter.ai/{model_id.replace(':free','')}",
+        _mid = urllib.parse.quote(model_id.replace(':free',''), safe='/')
+        req = urllib.request.Request(f"https://openrouter.ai/{_mid}",
                                      headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
@@ -360,7 +363,8 @@ def get_openrouter_web_release_date(model_id: str):
 def get_hf_release_date(model_id: str):
     """Last resort: HF repo creation date (NOT the model release date)."""
     try:
-        req = urllib.request.Request(f"https://huggingface.co/api/models/{model_id.replace(':free','')}",
+        _mid = urllib.parse.quote(model_id.replace(':free',''), safe='/')
+        req = urllib.request.Request(f"https://huggingface.co/api/models/{_mid}",
                                      headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             created = json.loads(resp.read()).get("createdAt", "")
