@@ -166,9 +166,12 @@ now reports 3.11.15.
 - Apply: `python select-models.py`
 - Poller smoke (no key): `python poll_openrouter.py --json`
 
-## Next steps (Phase 3)
+## Status
 
-1. Wire `select-models.py` into `hermes-setup.ps1` + the nightly task.
-2. Add `poll_nous.py` and retire the cache-only Nous path.
-3. **Review ordering weights/merge decision** (configurable `model_ranking` matrix and `--show-ranking`/`--set-*` flags are implemented; decide later whether one selector owns `model.default`).
+Phase 3 complete: `select-models.py` is the sole selector (cutover done), wired into
+`hermes-setup.ps1` and the nightly task; `poll_nous.py` ships; `hermes-model-selector.py`
+retired. `model.default` + `fallback_providers` are owned by `select-models.py`.
+
+Remaining open items: capability ranking weight; module-size refactor; performance/cost/
+observability/ux/accessibility/compliance review axes (not yet covered).
 

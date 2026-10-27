@@ -42,6 +42,9 @@ python select-models.py --prefer-local --dry-run
 | `--providers` | Comma-separated provider slugs |
 | `--model` | Retest a specific model id on selected providers |
 | `--prefer-local` | Include local Ollama |
+|| `--capability CAP` | Keep only models whose capabilities include CAP |
+|| `--hermes-home PATH` | Override Hermes home directory |
+|| `--today YYYY-MM-DD` | Treat run as happening on given date (testing) |
 | `--apply` | Write config (default when not dry-run) |
 | `--json` | Emit JSON summary |
 
@@ -116,5 +119,5 @@ If `model_ranking` is absent, built-in defaults are used and written on first ap
 ## Tests
 
 ```powershell
-python -m pytest -q   # 60 tests, no network
+python -m pytest -q   # 69 tests, no network
 ```

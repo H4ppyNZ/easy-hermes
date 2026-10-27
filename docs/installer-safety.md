@@ -2,7 +2,7 @@
 
 Repo: `C:\Users\mattw\Documents\repos\easy-hermes` (git, `github.com/H4ppyNZ/easy-hermes`).
 Files: `hermes-setup.ps1` (installer; params `-Yolo`, `-Model`, `-SkipInstall`, `-SkipDocs`,
-`-SelectorOnly`, `-SchedulerOnly`), `hermes-model-selector.py` (free-tier probe + promotion
+`-SelectorOnly`, `-SchedulerOnly`), `select-models.py` (free-tier probe + promotion
 gate), `Set-ModelSelectorTask.ps1` (registers a daily task). The README one-liners use the
 scriptblock cast and pull `main`, so a push is live for testers at once.
 

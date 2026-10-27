@@ -4,7 +4,7 @@ Probe the (free) models served by a local Ollama daemon and fold the ones that
 actually answer into Hermes' config -- as fallback providers, and optionally as
 model.default.
 
-This is the Ollama counterpart of hermes-model-selector.py (which handles the
+This is the Ollama counterpart of select-models.py (which handles the
 Nous Portal free tier). It is kept SEPARATE for now and is meant to be merged
 into hermes-setup.ps1 step 5 ("model selector") later. It does not touch the
 Nous chain unless --apply-fallbacks is given (default on) -- see --dry-run.

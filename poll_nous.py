@@ -1,6 +1,6 @@
 """Poll Nous Portal free models from the local Hermes endpoint metadata cache.
 
-Nous is handled specially by hermes-model-selector.py (auth + probe). This
+Nous is handled specially by select-models.py (auth + probe). This
 poller only lists the free models already cached in
 ~/.hermes/cache/endpoint_model_metadata.json so select-models.py can include
 Nous in its candidate pool (listing only, no probing here).

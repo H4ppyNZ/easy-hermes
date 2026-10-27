@@ -1,4 +1,4 @@
-"""Release-date resolution helpers (moved out of hermes-model-selector.py)."""
+"""Release-date resolution helpers (moved out of the old selector)."""
 from __future__ import annotations
 import json
 import re

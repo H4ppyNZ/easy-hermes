@@ -117,7 +117,7 @@ PROVIDERS = {
         "display": "Nous Portal",
         "module": "poll_nous",
         "fetch_fn": "poll",
-        "env_any": [],                       # cache-based; auth handled by hermes-model-selector
+        "env_any": [],                       # cache-based; auth handled by select-models
         "env_optional": [],
         "requires_key": False,
         "probe": False,

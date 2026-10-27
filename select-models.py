@@ -451,7 +451,7 @@ def extract_release_date(m):
             return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
         except ValueError:
             continue
-    # Approximate via hermes-model-selector (OpenRouter/HF/hardcoded) if available.
+    # Approximate via release_dates (OpenRouter/HF/hardcoded) if available.
     mid = m.get("id") or m.get("model") or m.get("name")
     if mid:
         try:
