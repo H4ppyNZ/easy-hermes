@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-import poll_novita as pn
+import pollers.poll_novita as pn
 
 
 def _resp(obj):
@@ -23,13 +23,13 @@ class TestPollNovita(unittest.TestCase):
             {"id": "free-model", "input_token_price_per_m": 0, "output_token_price_per_m": 0},
             {"id": "paid-model", "input_token_price_per_m": 3000, "output_token_price_per_m": 12000},
         ]}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models()
         self.assertEqual([m["id"] for m in models], ["free-model"])
 
     def test_openai_style(self):
         payload = {"data": [{"id": "llama3:8b"}, {"id": "qwen:7b"}]}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models(free_only=False)
         self.assertEqual([m["id"] for m in models], ["llama3:8b", "qwen:7b"])
 
@@ -38,7 +38,7 @@ class TestPollNovita(unittest.TestCase):
             "data": [{"id": "beam"}],
             "models": [{"slug": "beam", "capabilities": ["completion"], "context_size": 1024}],
         }
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models(free_only=False)
         self.assertEqual(models[0]["id"], "beam")
         self.assertEqual(models[0]["capabilities"], ["completion"])
@@ -51,7 +51,7 @@ class TestPollNovita(unittest.TestCase):
             {"id": "price-field", "price": 0},
             {"id": "paid-price", "price": 5},
         ]}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models()
         ids = [m["id"] for m in models]
         self.assertIn("free-model", ids)
@@ -64,7 +64,7 @@ class TestPollNovita(unittest.TestCase):
             {"id": "free-both", "input_token_price_per_m": 0, "output_token_price_per_m": 0},
             {"id": "paid-out", "input_token_price_per_m": 0, "output_token_price_per_m": 5},
         ]}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models()
         ids = [m["id"] for m in models]
         self.assertIn("free-both", ids)
@@ -72,7 +72,7 @@ class TestPollNovita(unittest.TestCase):
 
     def test_empty_result(self):
         payload = {"data": []}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             models = pn.fetch_models()
         self.assertEqual(models, [])
 
@@ -80,8 +80,8 @@ class TestPollNovita(unittest.TestCase):
         import urllib.error
         http_err = urllib.error.HTTPError("u", 500, "err", {}, io.BytesIO(b""))
         seq = [http_err, _resp({"data": [{"id": "m1", "input_token_price_per_m": 0, "output_token_price_per_m": 0}]})]
-        with patch("poll_novita.urllib.request.urlopen", side_effect=seq):
-            with patch("poll_novita.time.sleep"):
+        with patch("pollers.poll_novita.urllib.request.urlopen", side_effect=seq):
+            with patch("pollers.poll_novita.time.sleep"):
                 models = pn.fetch_models(retries=2)
         self.assertEqual([m["id"] for m in models], ["m1"])
 
@@ -116,7 +116,7 @@ class TestPollNovita(unittest.TestCase):
 
     def test_main_dry_run(self):
         payload = {"data": [{"id": "m1", "input_token_price_per_m": 0, "output_token_price_per_m": 0}]}
-        with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+        with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
             rc = pn.main(["--dry-run", "--no-table", "--quiet", "--out", os.path.join(tempfile.gettempdir(), "nope.json")])
         self.assertEqual(rc, 0)
 
@@ -124,7 +124,7 @@ class TestPollNovita(unittest.TestCase):
         payload = {"data": [{"id": "m1", "input_token_price_per_m": 0, "output_token_price_per_m": 0}]}
         with tempfile.TemporaryDirectory() as d:
             outp = os.path.join(d, "o.json")
-            with patch("poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
+            with patch("pollers.poll_novita.urllib.request.urlopen", return_value=_resp(payload)):
                 rc = pn.main(["--out", outp, "--no-table", "--quiet"])
             self.assertEqual(rc, 0)
             self.assertTrue(os.path.exists(outp))

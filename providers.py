@@ -17,7 +17,7 @@ PROVIDERS = {
     "openrouter": {
         "slug": "openrouter",
         "display": "OpenRouter",
-        "module": "poll_openrouter",
+        "module": "pollers.poll_openrouter",
         "fetch_fn": "poll",
         "env_any": [],                       # public listing; key optional
         "env_optional": ["OPENROUTER_API_KEY"],
@@ -37,7 +37,7 @@ PROVIDERS = {
     "nvidia": {
         "slug": "nvidia",
         "display": "NVIDIA NIM",
-        "module": "poll_nvidia",
+        "module": "pollers.poll_nvidia",
         "fetch_fn": "poll",
         "env_any": ["NVIDIA_API_KEY", "NGC_API_KEY"],
         "env_optional": [],
@@ -49,12 +49,12 @@ PROVIDERS = {
         "default_enabled": True,
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
-        "chat_filter": "poll_nvidia:_is_chat_like",
+        "chat_filter": "pollers.poll_nvidia:_is_chat_like",
     },
     "gemini": {
         "slug": "gemini",
         "display": "Google AI Studio (Gemini)",
-        "module": "poll_gemini",
+        "module": "pollers.poll_gemini",
         "fetch_fn": "poll",
         "env_any": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
         "env_optional": [],
@@ -70,7 +70,7 @@ PROVIDERS = {
     "ollama-cloud": {
         "slug": "ollama-cloud",
         "display": "Ollama Cloud",
-        "module": "poll_ollama_cloud",
+        "module": "pollers.poll_ollama_cloud",
         "fetch_fn": "poll",
         "env_any": [],                       # public tags endpoint works keyless
         "env_optional": ["OLLAMA_API_KEY", "OLLAMA_CLOUD_API_KEY"],
@@ -85,7 +85,7 @@ PROVIDERS = {
     "novita": {
         "slug": "novita",
         "display": "Novita AI",
-        "module": "poll_novita",
+        "module": "pollers.poll_novita",
         "fetch_fn": "poll",
         "env_any": ["NOVITA_API_KEY", "NOVITA_KEY", "NOVITA_AI_API_KEY"],
         "env_optional": [],
@@ -100,7 +100,7 @@ PROVIDERS = {
     "ollama-local": {
         "slug": "ollama-local",
         "display": "Local Ollama",
-        "module": "poll_ollama_local",
+        "module": "pollers.poll_ollama_local",
         "fetch_fn": "poll",
         "env_any": [],                       # daemon, no key
         "env_optional": [],
@@ -115,7 +115,7 @@ PROVIDERS = {
     "nous": {
         "slug": "nous",
         "display": "Nous Portal",
-        "module": "poll_nous",
+        "module": "pollers.poll_nous",
         "fetch_fn": "poll",
         "env_any": [],                       # cache-based; auth handled by select-models
         "env_optional": [],

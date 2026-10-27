@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import poll_gemini as pg
+import pollers.poll_gemini as pg
 
 
 def _http_ok(payload):
@@ -65,8 +65,8 @@ def test_missing_creds_raises():
 
 def test_fetch_single_page():
     payload = {"models": [SAMPLE_GEN, SAMPLE_EMBED]}
-    with patch("poll_gemini._http_get", return_value=_http_ok(payload)):
-        with patch("poll_gemini.time.sleep"):
+    with patch("pollers.poll_gemini._http_get", return_value=_http_ok(payload)):
+        with patch("pollers.poll_gemini.time.sleep"):
             with patch.dict(os.environ, {"GOOGLE_API_KEY": "k"}):
                 out = pg.fetch_models(free_only=True)
     assert len(out) == 1
@@ -77,8 +77,8 @@ def test_fetch_pagination():
     p1 = {"models": [SAMPLE_GEN], "nextPageToken": "tok2"}
     p2 = {"models": [SAMPLE_PAIDISH]}
     responses = [_http_ok(p1), _http_ok(p2)]
-    with patch("poll_gemini._http_get", side_effect=responses):
-        with patch("poll_gemini.time.sleep"):
+    with patch("pollers.poll_gemini._http_get", side_effect=responses):
+        with patch("pollers.poll_gemini.time.sleep"):
             with patch.dict(os.environ, {"GOOGLE_API_KEY": "k"}):
                 out = pg.fetch_models(free_only=True)
     assert len(out) == 2
@@ -86,16 +86,16 @@ def test_fetch_pagination():
 
 def test_fetch_429_retry():
     responses = [(429, {}, {}, None), _http_ok({"models": [SAMPLE_GEN]})]
-    with patch("poll_gemini._http_get", side_effect=responses):
-        with patch("poll_gemini.time.sleep"):
+    with patch("pollers.poll_gemini._http_get", side_effect=responses):
+        with patch("pollers.poll_gemini.time.sleep"):
             with patch.dict(os.environ, {"GOOGLE_API_KEY": "k"}):
                 out = pg.fetch_models(free_only=True)
     assert len(out) == 1
 
 
 def test_poll_returns_list_on_error():
-    with patch("poll_gemini._http_get", side_effect=RuntimeError("boom")):
-        with patch("poll_gemini.time.sleep"):
+    with patch("pollers.poll_gemini._http_get", side_effect=RuntimeError("boom")):
+        with patch("pollers.poll_gemini.time.sleep"):
             with patch.dict(os.environ, {"GOOGLE_API_KEY": "k"}):
                 out = pg.poll()
     assert out == []

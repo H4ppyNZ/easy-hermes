@@ -4,8 +4,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-POLLERS = ["poll_openrouter", "poll_nvidia", "poll_gemini",
-           "poll_ollama_cloud", "poll_novita", "poll_nous"]
+POLLERS = ["pollers.poll_openrouter", "pollers.poll_nvidia", "pollers.poll_gemini",
+           "pollers.poll_ollama_cloud", "pollers.poll_novita", "pollers.poll_nous"]
 
 
 def test_poller_contract():
@@ -31,5 +31,6 @@ def test_provider_registry_fetch_fn():
         if slug == "ollama-local":
             continue
         assert "fetch_fn" in cfg, f"{slug}: missing fetch_fn"
-        mod = __import__(cfg["module"])
+        import importlib
+        mod = importlib.import_module(cfg["module"])
         assert callable(getattr(mod, cfg["fetch_fn"], None)), f"{slug}: fetch_fn not callable"

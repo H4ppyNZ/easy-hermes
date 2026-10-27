@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
-    "hermes_ollama_selector", Path(__file__).resolve().parent / "hermes-ollama-selector.py")
+    "hermes_ollama_selector", Path(__file__).resolve().parent.parent / "hermes-ollama-selector.py")
 assert _SPEC is not None and _SPEC.loader is not None
 _MOD = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MOD)

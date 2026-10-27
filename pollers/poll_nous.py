@@ -9,6 +9,11 @@ import json
 import os
 from pathlib import Path
 try:
+    import sys as _sys
+    from pathlib import Path as _P
+    _root = str(_P(__file__).resolve().parent.parent)
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
     import release_dates as _rd
     HARDCODED_DATES = _rd.HARDCODED_DATES
 except Exception:

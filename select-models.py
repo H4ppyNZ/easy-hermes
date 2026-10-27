@@ -844,7 +844,8 @@ def rank_models(models, ranking=None):
 def fetch_provider(slug, cfg):
     modname = cfg["module"]
     try:
-        mod = __import__(modname)
+        import importlib
+        mod = importlib.import_module(modname)
     except Exception as e:
         return [], f"import failed: {e}"
     fn = None
