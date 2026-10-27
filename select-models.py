@@ -1094,7 +1094,7 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
         if default_model is not None:
             best = default_model
             best_provider = best.get("_provider", "custom")
-            hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
+            hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom", "ollama-cloud") else "custom"
             mcfg = cfg.setdefault("model", {})
             if not isinstance(mcfg, dict):
                 mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
@@ -1112,7 +1112,7 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
             if effective_default_id and _model_id(m) == effective_default_id:
                 continue
             prov = m.get("_provider", "custom")
-            hp = prov if prov in ("nous", "openrouter", "custom") else "custom"
+            hp = prov if prov in ("nous", "openrouter", "custom", "ollama-cloud") else "custom"
             entry = {"provider": hp, "model": m["id"]}
             if hp == "custom" and m.get("_base_url"):
                 entry["base_url"] = m["_base_url"]

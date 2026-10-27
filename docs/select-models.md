@@ -116,6 +116,46 @@ model_ranking:
 
 If `model_ranking` is absent, built-in defaults are used and written on first apply.
 
+## Provider descriptors in config.yaml
+
+When `select-models.py` writes `model.default` and `fallback_providers` to
+`config.yaml`, each entry needs a `provider` field that Hermes can resolve at
+runtime. Three categories exist:
+
+| Category | Provider value | base_url written? | Example |
+|----------|---------------|-------------------|---------|
+| Built-in Hermes provider | `nous`, `openrouter`, `ollama-cloud` | No (uses provider's own endpoint) | Ollama Cloud models |
+| Custom OpenAI-compatible endpoint | `custom` | Yes (`base_url`) | NVIDIA, Gemini, Novita, Ollama-local |
+| Everything else | `custom` (fallback) | Yes (`base_url`) | Any new provider not yet registered |
+
+### Adding a new provider as a named descriptor
+
+If a provider should get a real descriptor (not `custom`), three changes are needed:
+
+1. **select-models.py** — add the provider slug to the allowed tuple in two places:
+   - Line ~1097: `hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom", "<slug>") else "custom"`
+   - Line ~1115: `hp = prov if prov in ("nous", "openrouter", "custom", "<slug>") else "custom"`
+
+   The `base_url` guard (`if hp == "custom" and ...`) automatically skips base_url for non-custom providers.
+
+2. **Hermes runtime** — the slug must resolve to a real provider. Either:
+   - Add it as a built-in in `hermes_cli/providers.py` (like `ollama-cloud`), **or**
+   - Add a `providers:` entry in `config.yaml` with `name`, `base_url`, `api_key`/`key_env` (Hermes resolves these at runtime via `runtime_provider_custom.py`)
+
+3. **Migration** — existing configs with `provider: custom` + `base_url: <endpoint>` for that provider should be converted to `provider: <slug>` (no base_url). A one-pass Python migration:
+   ```python
+   if entry.get("provider") == "custom" and entry.get("base_url", "").rstrip("/") == "<endpoint>":
+       entry["provider"] = "<slug>"
+       entry.pop("base_url", None)
+   ```
+
+### Why not just always use `custom`?
+
+`custom` works functionally, but it loses provider identity in logs, config, and the
+NightlyRestart monitor's status message. A named descriptor makes it clear which
+backend is being used and avoids ambiguity when multiple custom endpoints share
+similar base URLs.
+
 ## Tests
 
 ```powershell
