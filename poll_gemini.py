@@ -8,13 +8,9 @@ import sys
 import time
 import urllib.error
 import urllib.parse
-try:
-    import safe_url
-except Exception:
-    class safe_url:  # type: ignore
-        @staticmethod
-        def safe_next(nxt, base):
-            return nxt
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safe_url
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,10 +37,13 @@ _env_base = os.environ.get("GEMINI_BASE_URL") or os.environ.get("GOOGLE_BASE_URL
 if _env_base:
     try:
         import urllib.parse as _up
-        _host = _up.urlsplit(_env_base).netloc.lower()
+        _parsed = _up.urlsplit(_env_base)
+        _host = _parsed.netloc.lower()
+        _scheme = _parsed.scheme.lower()
     except Exception:
         _host = ""
-    if _host in ("", "generativelanguage.googleapis.com"):
+        _scheme = ""
+    if _host and _host in ("generativelanguage.googleapis.com",) and _scheme in ("", "http", "https"):
         _b = _env_base.strip().rstrip("/")
         if not _b.endswith("/models"):
             _b = _b + "/models"
@@ -260,7 +259,6 @@ def is_free_model(model):
     return True
 
 
-is_free = is_free_model
 
 
 def filter_models(models):
@@ -323,6 +321,48 @@ def _display_name(raw):
     return None
 
 
+def _approximate_created(model):
+    """Best-effort release date for Gemini models (API provides none).
+
+    Prefer an explicit 'created'/'release_date' field; otherwise infer from the
+    model id / description. Returns an ISO date string or None.
+    """
+    if not isinstance(model, dict):
+        return None
+    for key in ("created", "release_date", "updated"):
+        v = model.get(key)
+        if v:
+            return v if isinstance(v, str) else str(v)
+    desc = str(model.get("description") or "")
+    import re
+    m = re.search(r"released in ([A-Za-z]+) of (\d{4})", desc)
+    if m:
+        try:
+            dt = datetime.strptime(m.group(1) + " " + m.group(2), "%B %Y")
+            return dt.date().replace(day=1).isoformat()
+        except ValueError:
+            pass
+    mid = str(model.get("name") or model.get("id") or "").lower()
+    approx = {
+        "gemini-3.6": "2026-07-01",
+        "gemini-3.5": "2026-06-01",
+        "gemini-3.1": "2026-03-01",
+        "gemini-3-pro": "2026-02-01",
+        "gemini-3-flash": "2026-02-01",
+        "gemini-3": "2026-02-01",
+        "gemini-2.5": "2025-06-01",
+        "gemini-2.0": "2024-12-01",
+        "gemini-1.5": "2024-05-01",
+        "gemma-4": "2026-03-01",
+        "gemma-3": "2025-03-01",
+        "gemma-2": "2024-06-01",
+    }
+    for key, val in approx.items():
+        if key in mid:
+            return val
+    return None
+
+
 def normalize_model(model, rate_limits=None, headers=None, **kwargs):
     if not isinstance(model, dict):
         model = {"name": str(model)}
@@ -363,6 +403,7 @@ def normalize_model(model, rate_limits=None, headers=None, **kwargs):
         "id": mid,
         "display_name": display,
         "context_window": ctx,
+        "created": _approximate_created(model),
         "rate_limits": rl,
         "notes": notes,
     }
@@ -375,21 +416,6 @@ def normalize(model, **kwargs):
 def normalize_models(models, rate_limits=None, headers=None):
     rl = rate_limits
     return [normalize_model(m, rate_limits=rl, headers=headers) for m in (models or [])]
-
-
-def _with_key(url, api_key):
-    if not api_key:
-        return url
-    try:
-        parsed = urllib.parse.urlsplit(url)
-        q = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-        if "key" not in q:
-            q["key"] = [str(api_key)]
-        new_query = urllib.parse.urlencode(q, doseq=True)
-        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
-    except Exception:
-        sep = "&" if "?" in url else "?"
-        return url + sep + "key=" + urllib.parse.quote(str(api_key))
 
 
 def _append_page_token(url, token):
@@ -505,53 +531,30 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
             break
         visited.add(url)
 
-        last_err = None
-        data = None
-        success = False
+        status, hdrs, body, err = None, None, None, None
         for attempt in range(max(1, int(retries))):
             status, hdrs, body, err = _http_get(url, headers, timeout)
             if err is not None:
-                last_err = err
-                delay = backoff[min(attempt, len(backoff) - 1)]
-                try:
-                    time.sleep(delay)
-                except Exception:
-                    pass
-                continue
+                break
             if status == 429 or (isinstance(status, int) and status >= 500):
-                last_err = GeminiHTTPError(f"HTTP {status}")
-                ra = None
                 try:
-                    ra = hdrs.get("Retry-After") or hdrs.get("retry-after")
-                except Exception:
-                    ra = None
-                try:
-                    delay = float(ra) if ra is not None else backoff[min(attempt, len(backoff) - 1)]
-                except (TypeError, ValueError):
-                    delay = backoff[min(attempt, len(backoff) - 1)]
-                try:
-                    time.sleep(delay)
+                    time.sleep(backoff[min(attempt, len(backoff) - 1)])
                 except Exception:
                     pass
                 continue
-            if isinstance(status, int) and status >= 400:
-                raise GeminiHTTPError(f"HTTP {status}: {body}")
-            if status is None:
-                last_err = GeminiHTTPError("no response status")
-                delay = backoff[min(attempt, len(backoff) - 1)]
-                try:
-                    time.sleep(delay)
-                except Exception:
-                    pass
-                continue
-            data = body
-            success = True
             break
+        if err is not None:
+            raise GeminiHTTPError(err if isinstance(err, Exception) else GeminiHTTPError(str(err)))
+        if status == 429 or (isinstance(status, int) and status >= 500):
+            raise GeminiHTTPError(f"HTTP {status}")
+        if isinstance(status, int) and status >= 400:
+            raise GeminiHTTPError(f"HTTP {status}: {body}")
+        if status is None:
+            raise GeminiHTTPError("no response status")
 
-        if not success:
-            if isinstance(last_err, Exception):
-                raise last_err
-            raise GeminiHTTPError(f"failed to fetch {url}")
+        data = body if body is not None else {}
+        if not isinstance(data, (dict, list)):
+            data = {}
 
         if isinstance(data, dict):
             page = data.get("models")
@@ -568,10 +571,8 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
             page = data
         else:
             page = []
-
         if not isinstance(page, list):
             page = []
-
         all_raw.extend([m for m in page if isinstance(m, dict)])
 
         nxt = _next_url(data, url) if isinstance(data, dict) else None
@@ -592,17 +593,12 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
     return normalized
 
 
-fetch_gemini_models = fetch_models
-list_models = fetch_models
-get_models = fetch_models
 def poll(*a, **kw):
     try:
         return fetch_models(*a, **kw)
     except (Exception, SystemExit):
         return []
 poll_models = poll
-poll_gemini = fetch_models
-fetch = fetch_models
 fetch_free_models = fetch_models
 
 

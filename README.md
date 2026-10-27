@@ -141,7 +141,7 @@ Output: `out/ollama-cloud.json`.
 - **Phase 2 complete and pushed to `main`.** All 5 provider pollers, plus
   `providers.py` (registry) and `select-models.py` (central selector), are
   merged.
-- **60 tests pass** (`python -m pytest -q`, no network).
+- **69 tests pass** (`python -m pytest -q`, no network).
 
 ## Environment / API keys
 
@@ -160,7 +160,7 @@ now reports 3.11.15.
 
 ## Development / testing
 
-- Tests: `python -m pytest -q` (53 tests, no network)
+- Tests: `python -m pytest -q` (69 tests, no network)
 - Selector preview: `python select-models.py --dry-run`
 - Selector preview (JSON): `python select-models.py --dry-run --json`
 - Apply: `python select-models.py`

@@ -159,9 +159,10 @@ and runs the rest.
   tier, applies a promotion gate with hysteresis, and writes config through
   Hermes' comment-preserving YAML writer. It is the incumbent primary-slot
   authority.
-- `select-models.py` (531 lines) is the new multi-provider selector: provider
+- `select-models.py` (1583 lines) is the new multi-provider selector: provider
   registry, fetch + probe top-N, 7-day cache, merge into existing
-  `fallback_providers`, and writes via `yaml.safe_dump`.
+  `fallback_providers`, and writes via ruamel `atomic_roundtrip_yaml_save`
+  (comment-preserving), with `yaml.safe_dump` only as a fallback.
 - **Overlap / risk:** both write `model.default` and `fallback_providers`; if both
   run, the last writer wins and the Nous promotion gate can be bypassed.
 - **Differences that matter:** Nous selector preserves YAML comments/order and

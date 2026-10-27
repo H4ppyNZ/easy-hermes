@@ -52,6 +52,7 @@ Exercises the gate without updating Hermes or touching config.yaml.
 param(
     [string]$Time = "05:00",
     [string]$HermesHome = "C:\Users\mattw\AppData\Local\hermes",
+    [string[]]$ExtraTasks = @(),
     [switch]$SkipUpdate,
     [switch]$DryRun
 )
@@ -100,6 +101,7 @@ function Invoke-Native {
 # See Set-ScheduledTask.ps1: the task must run as the same user that owns the gateway.
 
 # Event Log message body is limited to 32766 bytes; longer messages throw.
+# (Clamp below at 30000 to stay safely under the limit.)
 $EventLogMaxChars = 30000
 
 if (-not [System.Diagnostics.EventLog]::SourceExists($eventSource)) {
@@ -138,7 +140,7 @@ function Write-LogError {
 
 # -- Resolve paths (fail loudly rather than silently doing nothing) --
 $pythonPath   = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
-$selectorPy   = Join-Path $PSScriptRoot 'hermes-model-selector.py'
+$selectorPy   = Join-Path $PSScriptRoot 'select-models.py'
 $hermesExe    = Join-Path $HermesHome "hermes-agent\venv\Scripts\hermes.exe"
 
 # All three must exist: python runs the selector, that script is the
@@ -191,14 +193,27 @@ if ($DryRun) {
 }
 
 # -- Step 4: Other tasks --
-$otherTasks = @(
-    @{ Name = "bedrock updater"; Command = { & 'D:\Games\repoGaming\bedrockupdater.ps1' -Restart } }
-)
+# Host-specific extra tasks are NOT hardcoded here. Pass them via -ExtraTasks
+# (array of script paths) or populate $otherTasks below; missing scripts are
+# skipped rather than aborting the run.
+$otherTasks = @()
+if ($ExtraTasks) {
+    foreach ($t in $ExtraTasks) {
+        $otherTasks += @{ Name = (Split-Path $t -Leaf); Command = { & $t } }
+    }
+}
 
 Write-Log "Step 4/4: Running $($otherTasks.Count) additional task(s)..."
 $i = 0
 foreach ($task in $otherTasks) {
     $i++
+    # Basic path validation for script-based tasks.
+    $target = $null
+    try { $target = ($task.Command.ToString() -replace '.*&\s*', '').Trim().Trim("'\"") } catch { }
+    if ($target -and -not (Test-Path -LiteralPath $target)) {
+        Write-Log "Task $i ($($task.Name)): SKIPPED (script not found: $target)"
+        continue
+    }
     Write-Log "Invoking task $i/$($otherTasks.Count): $($task.Name)"
     try {
         $output = & $task.Command 2>&1 | Out-String

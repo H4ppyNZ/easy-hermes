@@ -34,15 +34,31 @@ def is_free_model(info):
         return False
 
 
+HARDCODED_DATES = {
+    "meituan/longcat-2.5-preview:free": "2026-09-25",
+    "upstage/solar-mini4:free": "2026-09-23",
+    "meituan/longcat-2.0:free": "2026-07-20",
+    "stepfun/step-3.7-flash:free": "2026-05-28",
+}
+
+
 def normalize_model(model_id, info):
     if not isinstance(info, dict):
         info = {}
     seen = set()
+    created = HARDCODED_DATES.get(str(model_id))
+    if created is None:
+        # fall back to any date field the cache might carry
+        for key in ("created", "release_date", "updated_at", "modified_at"):
+            v = info.get(key)
+            if v:
+                created = v if isinstance(v, str) else str(v)
+                break
     return {
         "id": model_id,
         "display_name": info.get("name", model_id),
         "context_window": info.get("context_length"),
-        "created": None,
+        "created": created,
         "rate_limits": None,
         "notes": "Nous Portal free model (from endpoint_model_metadata cache).",
     }

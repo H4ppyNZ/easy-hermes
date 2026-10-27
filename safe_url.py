@@ -20,12 +20,23 @@ def origin_of(url):
 
 def same_origin(url, base):
     """True if url is relative or shares scheme+host with base."""
-    u = origin_of(url)
-    if u is None:
-        return True  # relative / no origin -> resolve against base
+    if not isinstance(url, str):
+        return False
+    try:
+        p = urllib.parse.urlsplit(url.strip())
+    except Exception:
+        return False
+    # Relative (no netloc): resolves against base -> allow.
+    if not p.netloc:
+        # Reject scheme-only dangerous schemes like javascript:, data:, vbscript:
+        if p.scheme and p.scheme.lower() not in ("http", "https", ""):
+            return False
+        return True
+    # Absolute or scheme-relative: require matching origin.
+    u = (p.scheme.lower(), p.netloc.lower())
     b = origin_of(base)
     if b is None:
-        return True
+        return False
     return u == b
 
 

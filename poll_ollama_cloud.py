@@ -9,13 +9,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-try:
-    import safe_url
-except Exception:
-    class safe_url:  # type: ignore
-        @staticmethod
-        def safe_next(nxt, base):
-            return nxt
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safe_url
 try:
     import poll_base
 except Exception:
@@ -87,39 +83,14 @@ def http_get_json(url, api_key=None, timeout=20, retries=3):
     }
     if api_key:
         headers["Authorization"] = "Bearer " + api_key
-    if poll_base is not None:
-        data, err = poll_base.http_get_json(
-            url, headers=headers, timeout=timeout, backoff=RETRY_BACKOFF,
-            urlopen=urllib.request.urlopen, sleep=time.sleep)
-        if err:
-            raise RuntimeError(f"http_get_json failed: {err}")
-        return data
-    # fallback: original inline implementation (keeps behavior if poll_base missing)
-    last_exc = None
-    attempts = max(1, int(retries or 1))
-    for attempt in range(attempts):
-        try:
-            req = urllib.request.Request(url, headers=headers, method="GET")
-            with _open(req, timeout) as resp:
-                raw = resp.read()
-            text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
-            return json.loads(text)
-        except urllib.error.HTTPError as e:
-            last_exc = e
-            code = getattr(e, "code", None)
-            if code not in (429, 500, 502, 503, 504) or attempt == attempts - 1:
-                raise
-        except Exception as e:
-            last_exc = e
-            if attempt == attempts - 1:
-                raise
-        try:
-            time.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
-        except Exception:
-            pass
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("http_get_json: no response")
+    if poll_base is None:
+        raise RuntimeError("poll_base unavailable")
+    data, err = poll_base.http_get_json(
+        url, headers=headers, timeout=timeout, backoff=RETRY_BACKOFF,
+        urlopen=urllib.request.urlopen, sleep=time.sleep)
+    if err:
+        raise RuntimeError(f"http_get_json failed: {err}")
+    return data
 
 
 def next_page_url(payload, current_url, collected):
@@ -196,7 +167,7 @@ def normalize_model(item, source=None):
                                    for x in rlevels]
     if source is not None:
         rec["source"] = source
-    for k in ("visibility", "supported_in_api", "owned_by", "object", "created"):
+    for k in ("visibility", "supported_in_api", "owned_by", "object", "created", "modified_at", "updated_at"):
         if k in raw and raw.get(k) is not None:
             rec[k] = raw.get(k)
     return rec

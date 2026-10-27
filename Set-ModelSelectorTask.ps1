@@ -21,7 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $taskName = 'Hermes Model Selector'
-$selectorScript = Join-Path $PSScriptRoot 'hermes-model-selector.py'
+$selectorScript = Join-Path $PSScriptRoot 'select-models.py'
 
 if (-not (Test-Path -LiteralPath $selectorScript -PathType Leaf)) {
     throw "Selector script not found: $selectorScript"

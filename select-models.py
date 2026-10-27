@@ -6,9 +6,10 @@ import os
 import sys
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
-
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -30,11 +31,9 @@ except Exception:
     chain_delta = None
 
 CACHE_TTL_DAYS = 7
-RANKING = None
 REASONING_PRIORITY = ["max", "xhigh", "high", "medium", "low", "minimal", "none"]
 PROBE_MAX_TOKENS = 2000
 PROBE_RETRY_MAX_TOKENS = 8000
-REASONING_MODE = None
 
 
 def load_cache():
@@ -101,6 +100,216 @@ def build_ranking_from_mr(mr):
     return {"weights": weights, "provider_priority": pp, "missing_release_date": missing}
 
 
+def _model_id(m):
+    if isinstance(m, dict):
+        return str(m.get("id") or m.get("model") or m.get("name"))
+    return str(m)
+
+
+def _release_date(m):
+    if isinstance(m, dict):
+        return m.get("_release_date") or m.get("release_date")
+    return None
+
+
+def load_promotion_history():
+    try:
+        if PROMOTION_HISTORY_PATH.exists():
+            data = json.loads(PROMOTION_HISTORY_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def save_promotion_history(history):
+    try:
+        import atomic_io
+        atomic_io.atomic_write_json(PROMOTION_HISTORY_PATH, history, indent=2)
+    except Exception as e:
+        print(f"  (promotion history write failed: {e})", file=sys.stderr)
+
+
+def _blank_promo_record(today):
+    return {
+        "first_seen": today,
+        "last_seen": today,
+        "last_pass": None,
+        "last_clean": None,
+        "last_fail": None,
+        "last_fail_note": None,
+        "consecutive_clean_passes": 0,
+        "total_runs": 0,
+        "clean_runs": 0,
+        "unclean_runs": 0,
+        "failed_runs": 0,
+        "missed_runs": 0,
+        "promotion_count": 0,
+        "promoted_at": None,
+    }
+
+
+def update_promotion_history(history, probed, today):
+    seen = set()
+    for m in probed:
+        mid = m["model"]
+        seen.add(mid)
+        rec = history.setdefault(mid, _blank_promo_record(today))
+        for k, v in _blank_promo_record(today).items():
+            rec.setdefault(k, v)
+        rec["last_seen"] = today
+        rec["total_runs"] += 1
+        if m.get("test_passed"):
+            rec["last_pass"] = today
+            if m.get("clean_pass"):
+                rec["clean_runs"] += 1
+                if rec.get("last_clean") != today:
+                    rec["consecutive_clean_passes"] += 1
+                    rec["last_clean"] = today
+            else:
+                rec["unclean_runs"] += 1
+                rec["consecutive_clean_passes"] = 0
+        else:
+            rec["failed_runs"] += 1
+            rec["consecutive_clean_passes"] = 0
+            rec["last_fail"] = today
+            rec["last_fail_note"] = (m.get("fail_note") or "")[:120]
+    for mid, rec in history.items():
+        if mid not in seen:
+            if rec.get("consecutive_clean_passes"):
+                rec["consecutive_clean_passes"] = 0
+            rec["missed_runs"] = rec.get("missed_runs", 0) + 1
+
+
+def prune_promotion_history(history, today):
+    cutoff = date.fromisoformat(today).toordinal() - HISTORY_PRUNE_DAYS
+    removed = []
+    for mid in list(history):
+        last = (history[mid].get("last_seen") or "")[:10]
+        try:
+            if date.fromisoformat(last).toordinal() < cutoff:
+                removed.append(mid)
+                del history[mid]
+        except ValueError:
+            removed.append(mid)
+            del history[mid]
+    return removed
+
+
+def show_promotion_history(history):
+    if not history:
+        print("Promotion history is empty (no runs recorded yet).")
+        return
+    print(f"\n{'=' * 104}")
+    print("PROMOTION HISTORY  (consecutive_clean_passes is what the gate reads)")
+    print(f"{'=' * 104}")
+    print(f"  {'model':<42} {'streak':>6} {'runs':>5} {'clean':>6} {'uncln':>6} "
+          f"{'fail':>5} {'miss':>5} {'prom':>5}  last_clean")
+    print(f"  {'-' * 100}")
+    for mid in sorted(history, key=lambda k: (-history[k].get("consecutive_clean_passes", 0), k)):
+        r = history[mid]
+        print(f"  {mid:<42} {r.get('consecutive_clean_passes', 0):>6} "
+              f"{r.get('total_runs', 0):>5} {r.get('clean_runs', 0):>6} "
+              f"{r.get('unclean_runs', 0):>6} {r.get('failed_runs', 0):>5} "
+              f"{r.get('missed_runs', 0):>5} {r.get('promotion_count', 0):>5}  "
+              f"{r.get('last_clean') or '-'}")
+    print(f"{'=' * 104}\n")
+
+
+def promo_streak(history, model_id):
+    return int(history.get(model_id, {}).get("consecutive_clean_passes", 0))
+
+
+def choose_default(passed, probed_all, history, current_default, margin, hysteresis_days, emergency=True):
+    if not passed:
+        return None, "no models passed probing -- leaving model.default unchanged"
+
+    by_date = sorted(passed, key=lambda m: (_release_date(m) or "1970-01-01",
+                                          promo_streak(history, _model_id(m)), _model_id(m)),
+                      reverse=True)
+
+    probed_ids = {_model_id(m) for m in probed_all}
+    passed_ids = {_model_id(m) for m in passed}
+    incumbent_in_scope = current_default in probed_ids
+    incumbent_passed = current_default in passed_ids
+    incumbent_dead = incumbent_in_scope and not incumbent_passed
+    incumbent_streak = promo_streak(history, current_default)
+    incumbent_healthy = incumbent_in_scope and incumbent_passed and incumbent_streak >= margin
+
+    eligible = [m for m in by_date if promo_streak(history, _model_id(m)) >= margin]
+
+    if incumbent_in_scope:
+        inc_state = "healthy" if incumbent_healthy else ("DEAD (failed probing)" if incumbent_dead
+                                                         else f"in scope, streak {incumbent_streak}")
+    else:
+        inc_state = "out of scope (not a free candidate)"
+    print(f"\n{'─' * 80}")
+    print(f"PROMOTION GATE  (margin={margin} clean pass{'es' if margin != 1 else ''}, "
+          f"hysteresis={hysteresis_days}d)")
+    print(f"{'─' * 80}")
+    print(f"  incumbent: {current_default or '(none)'}  [{inc_state}]")
+    print(f"  {'model':<42} {'streak':>6}  eligible")
+    for m in by_date:
+        s = promo_streak(history, _model_id(m))
+        mark = "yes" if s >= margin else f"no (needs {margin - s} more)"
+        star = " <- incumbent" if _model_id(m) == current_default else ""
+        print(f"  {_model_id(m):<42} {s:>6}  {mark}{star}")
+    print(f"{'─' * 80}")
+
+    # first-run bootstrap: no incumbent at all
+    if not current_default:
+        if eligible:
+            w = eligible[0]
+            return w, (f"first run: promoting best eligible '{_model_id(w)}' "
+                       f"(streak {promo_streak(history, _model_id(w))})")
+        if passed:
+            w = by_date[0]
+            return w, (f"first run: promoting best available '{_model_id(w)}' (bootstrap)")
+
+    # Case 1: incumbent genuinely dead
+    if incumbent_dead:
+        if eligible:
+            w = eligible[0]
+            return w, (f"incumbent '{current_default}' FAILED probing this run; "
+                       f"promoting best eligible '{_model_id(w)}' "
+                       f"(streak {promo_streak(history, _model_id(w))})")
+        if emergency:
+            w = by_date[0]
+            return w, (f"EMERGENCY: incumbent '{current_default}' failed probing and no model "
+                       f"has {margin} clean passes; promoting best available "
+                       f"'{_model_id(w)}' (streak {promo_streak(history, _model_id(w))})")
+        return None, (f"incumbent '{current_default}' failed and nothing reached {margin} clean "
+                      "passes -- leaving model.default unchanged")
+
+    # Case 2: nothing earned the slot
+    if not eligible:
+        return None, (f"no model has {margin} clean passes yet -- leaving model.default "
+                      f"'{current_default}' unchanged")
+
+    # Case 3: qualified challenger
+    challenger = next((m for m in eligible if _model_id(m) != current_default), None)
+    if challenger is None:
+        return None, (f"'{current_default}' is the newest qualified model -- unchanged")
+
+    incumbent_entry = next((m for m in passed if _model_id(m) == current_default), None)
+    if incumbent_entry:
+        inc_date = _release_date(incumbent_entry) or "1970-01-01"
+        ch_date = _release_date(challenger) or "1970-01-01"
+        try:
+            days_newer = (date.fromisoformat(ch_date) - date.fromisoformat(inc_date)).days
+        except ValueError:
+            days_newer = 0
+        threshold = max(1, hysteresis_days)
+        if days_newer < threshold:
+            why = "not newer" if days_newer <= 0 else f"only {days_newer}d newer (needs {threshold}d)"
+            return None, (f"keeping '{current_default}': challenger '{_model_id(challenger)}' is {why}")
+
+    return challenger, (f"promoting '{_model_id(challenger)}' over '{current_default}': "
+                        f"streak {promo_streak(history, _model_id(challenger))}"
+                        + ("" if incumbent_in_scope else " (incumbent out of scope)"))
+
+
 def cache_key(provider, model_id):
     return f"{provider}::{model_id}"
 
@@ -132,7 +341,8 @@ def cached_result(cache, provider, model_id, refresh):
     try:
         probed = datetime.fromisoformat(e["probed_at"])
         fc = _failure_class(e)
-        if (datetime.now(timezone.utc) - probed).days >= _ttl_days(fc):
+        ttl = timedelta(days=_ttl_days(fc))
+        if (datetime.now(timezone.utc) - probed) >= ttl:
             return None
     except Exception:
         return None
@@ -174,19 +384,48 @@ DEFAULT_PROVIDER_PRIORITY = {
     "ollama-local": 1.0,
     "nous": 1.0,
 }
+BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
+PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
+PROMOTION_MARGIN = 2
+HYSTERESIS_DAYS = 7
+HISTORY_PRUNE_DAYS = 30
+
+
+def load_banned():
+    try:
+        if BANNED_PATH.exists():
+            data = json.loads(BANNED_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return set(str(x) for x in data)
+            if isinstance(data, dict):
+                return set(str(x) for x in data.get("banned", []))
+    except Exception:
+        pass
+    return set()
+
+
+def save_banned(banned):
+    try:
+        import atomic_io
+        atomic_io.atomic_write_json(BANNED_PATH, sorted(banned), indent=2)
+    except Exception as e:
+        print(f"  (banned list write failed: {e})", file=sys.stderr)
+
+
+def is_banned(mid, banned):
+    return str(mid) in banned
 
 
 def extract_release_date(m):
     if not isinstance(m, dict):
         return None
-    for key in ("_release_date", "release_date", "created"):
+    for key in ("_release_date", "release_date", "created", "modified_at", "updated_at", "updated"):
         v = m.get(key)
         if v is None:
             continue
         if isinstance(v, bool):
             continue
         if isinstance(v, (int, float)):
-            # unix timestamp (seconds or ms)
             ts = float(v)
             if ts > 1e12:
                 ts = ts / 1000.0
@@ -197,13 +436,11 @@ def extract_release_date(m):
         s = str(v).strip()
         if not s:
             continue
-        # ISO-ish date
         try:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
             return dt.date().isoformat()
         except ValueError:
             pass
-        # unix string
         try:
             ts = float(s)
             if ts > 1e12:
@@ -211,6 +448,186 @@ def extract_release_date(m):
             return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
         except ValueError:
             continue
+    # Approximate via hermes-model-selector (OpenRouter/HF/hardcoded) if available.
+    mid = m.get("id") or m.get("model") or m.get("name")
+    if mid:
+        try:
+            import release_dates as rd
+            res = rd.get_release_date(str(mid))
+            if isinstance(res, tuple):
+                return res[0]
+            if isinstance(res, str):
+                return res
+        except Exception:
+            pass
+    # Last-resort approximation from model id / provider.
+    mid_l = str(mid or "").lower()
+    approx = {
+        "gemini-3.6": "2026-07-01",
+        "gemini-3.5": "2026-06-01",
+        "gemini-3.1": "2026-03-01",
+        "gemini-3": "2026-02-01",
+        "gemini-2.5": "2025-06-01",
+        "gemini-2.0": "2024-12-01",
+        "gemini-1.5": "2024-05-01",
+        "gemma-4": "2026-03-01",
+        "gemma-3": "2025-03-01",
+        "gemma-2": "2024-06-01",
+    }
+    for key, val in approx.items():
+        if key in mid_l:
+            return val
+    # If a 4-digit year is embedded in the id, use Jan 1 of that year.
+    import re
+    ym = re.search(r"(20\d{2})", mid_l)
+    if ym:
+        return f"{ym.group(1)}-01-01"
+    return None
+
+
+def extract_capabilities(m):
+    """Best-effort capability set from a model record. No network."""
+    if not isinstance(m, dict):
+        return set()
+    caps = set()
+    # Direct fields
+    for key in ("capabilities", "tags", "supported_parameters", "parameters"):
+        v = m.get(key)
+        if isinstance(v, (list, tuple, set)):
+            for item in v:
+                caps.add(str(item).lower().strip())
+        elif isinstance(v, str):
+            for part in v.replace(",", " ").split():
+                caps.add(part.lower().strip())
+        elif isinstance(v, dict):
+            for k in v:
+                caps.add(str(k).lower().strip())
+    # Architecture
+    arch = m.get("architecture")
+    if isinstance(arch, dict):
+        mod = arch.get("modality")
+        if isinstance(mod, str):
+            for part in mod.replace(",", " ").split():
+                caps.add(part.lower().strip())
+        for k, v in arch.items():
+            if isinstance(v, bool) and v:
+                caps.add(str(k).lower().strip())
+    # OpenRouter supported_parameters is a list of strings already handled above.
+    # Normalize common aliases
+    alias = {
+        "tool_calling": "tools", "function_calling": "tools", "functions": "tools",
+        "vision": "vision", "image": "vision", "multimodal": "vision",
+        "code": "coding", "coder": "coding",
+        "reasoning": "reasoning", "thinking": "reasoning",
+        "json": "json", "structured_outputs": "json",
+    }
+    out = set()
+    for c in caps:
+        out.add(alias.get(c, c))
+    # Drop empties
+    out.discard("")
+    return out
+
+
+_OR_CONTEXT_MAP = None
+
+
+def _get_or_context_map():
+    global _OR_CONTEXT_MAP
+    if _OR_CONTEXT_MAP is not None:
+        return _OR_CONTEXT_MAP
+    _OR_CONTEXT_MAP = {}
+    try:
+        import urllib.request, json, os
+        key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_KEY")
+        url = "https://openrouter.ai/api/v1/models"
+        headers = {"Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        for m in (data.get("data") or []):
+            mid = m.get("id")
+            ctx = m.get("context_length")
+            if mid and ctx is not None:
+                _OR_CONTEXT_MAP[str(mid)] = ctx
+                name = str(mid).split("/")[-1].lower()
+                _OR_CONTEXT_MAP.setdefault(name, ctx)
+    except Exception:
+        pass
+    return _OR_CONTEXT_MAP
+
+
+def _normalize_key(s):
+    return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+def _hf_context(mid):
+    import os
+    if os.environ.get("EASY_HERMES_HF_CONTEXT", "").lower() not in ("1", "true", "yes"):
+        return None
+    if not mid:
+        return None
+    cands = {str(mid)}
+    # title-case each path segment (HF repos are usually CamelCase model names)
+    cands.add("/".join(p.capitalize() if i > 0 else p for i, p in enumerate(str(mid).split("/"))))
+    # also try lowercased whole
+    cands.add(str(mid).lower())
+    for repo in cands:
+        for branch in ("main", "master"):
+            url = f"https://huggingface.co/{repo}/raw/{branch}/config.json"
+            try:
+                with urllib.request.urlopen(url, timeout=8) as r:
+                    d = json.loads(r.read())
+                for key in ("max_position_embeddings", "max_seq_len", "n_ctx",
+                            "context_length", "max_sequence_length", "seq_length"):
+                    v = d.get(key)
+                    if isinstance(v, (int, float)) and v > 0:
+                        return int(v)
+            except Exception:
+                continue
+    return None
+
+
+def approximate_context(m):
+    if not isinstance(m, dict):
+        return None
+    ctx = m.get("context_window")
+    if isinstance(ctx, (int, float)):
+        return ctx
+    mid = m.get("id") or m.get("model") or m.get("name")
+    if not mid:
+        return None
+    # Prefer HuggingFace (authoritative model config) when the repo is public.
+    hf = _hf_context(mid)
+    if hf is not None:
+        return hf
+    # Fall back to OpenRouter (broader coverage, fuzzy match).
+    ormap = _get_or_context_map()
+    if not isinstance(ormap, dict) or not ormap:
+        return None
+    target = _normalize_key(mid)
+    for k, v in ormap.items():
+        if _normalize_key(k) == target:
+            return v
+    best = None
+    best_score = 0.0
+    import difflib
+    for k, v in ormap.items():
+        nk = _normalize_key(k)
+        if target in nk or nk in target:
+            score = min(len(target), len(nk)) / max(len(target), len(nk), 1)
+            if score > best_score:
+                best_score = score
+                best = v
+            continue
+        r = difflib.SequenceMatcher(None, target, nk).ratio()
+        if r > best_score:
+            best_score = r
+            best = v
+    if best is not None and best_score >= 0.82:
+        return best
     return None
 
 
@@ -250,7 +667,9 @@ def get_reasoning_efforts(model_id, base_url):
 
 def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
     base = cfg.get("probe_base_url") or ""
-    t = timeout if timeout else cfg.get("probe_timeout", 30)
+    t = timeout if (timeout is not None and timeout > 0) else (cfg.get("probe_timeout") or 15)
+    if not t or t <= 0:
+        t = 15
     extra = cfg.get("probe_headers")
     # Phase 1: initial polling WITHOUT reasoning (decides pass/fail).
     print("    base probe (no reasoning)...", end=" ", flush=True)
@@ -420,7 +839,12 @@ def rank_models(models, ranking=None):
 def fetch_provider(slug, cfg):
     if slug == "ollama-local":
         try:
-            import hermes_ollama_selector as hos
+            import importlib.util
+            from pathlib import Path as _P
+            _spec = importlib.util.spec_from_file_location(
+                "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
+            hos = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(hos)
             base = hos.resolve_base_url()
             raws = hos.fetch_models(base)
             out = []
@@ -479,21 +903,11 @@ def fetch_provider(slug, cfg):
     return out, None
 
 
-def sort_candidates(models):
-    def key(m):
-        cw = m.get("context_window")
-        try:
-            return (0, -int(cw)) if cw is not None else (1, 0)
-        except (TypeError, ValueError):
-            return (1, 0)
-    return sorted(models, key=key)
-
-
 import urllib.request
 import urllib.error
 
 
-def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, reasoning=None, max_tokens=256):
+def _openai_probe(model_id, base_url, api_key, timeout=15, extra_headers=None, reasoning=None, max_tokens=256):
     url = base_url.rstrip("/")
     if not url.endswith("/v1"):
         url = url + "/v1"
@@ -550,11 +964,13 @@ def _openai_probe(model_id, base_url, api_key, timeout=30, extra_headers=None, r
     return False, last, retried
 
 
-def _gemini_probe(model_id, api_key, base_url, timeout=30):
+def _gemini_probe(model_id, api_key, base_url, timeout=15):
     mid = model_id
     if not mid.startswith("models/"):
         mid = "models/" + mid
-    url = f"{base_url.rstrip('/')}/{mid}:generateContent?key={api_key}"
+    from urllib.parse import quote
+    mid_enc = "/".join(quote(seg, safe="") for seg in mid.split("/"))
+    url = f"{base_url.rstrip('/')}/{mid_enc}:generateContent"
     payload = {"contents": [{"parts": [{"text": "Say 'ok' and nothing else."}]}],
                "generationConfig": {"maxOutputTokens": 256}}
     retried = False
@@ -565,6 +981,7 @@ def _gemini_probe(model_id, api_key, base_url, timeout=30):
             time.sleep(delay)
         req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                     headers={"Content-Type": "application/json",
+                                             "x-goog-api-key": str(api_key),
                                              "User-Agent": "easy-hermes/select-models"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -607,7 +1024,12 @@ def _gemini_probe(model_id, api_key, base_url, timeout=30):
 
 def _ollama_local_probe(model_id, base_url, timeout=60):
     try:
-        import hermes_ollama_selector as hos
+        import importlib.util
+        from pathlib import Path as _P
+        _spec = importlib.util.spec_from_file_location(
+            "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
+        hos = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(hos)
     except Exception as e:
         return False, f"import failed: {e}", False
     try:
@@ -621,17 +1043,26 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
     kind = cfg.get("probe_kind")
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
-        t = timeout if timeout else cfg.get("probe_timeout", 30)
+        t = timeout if (timeout is not None and timeout > 0) else (cfg.get("probe_timeout") or 15)
+        if not t or t <= 0:
+            t = 15
         if reasoning:
             return probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=t)
         return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
-        t = timeout if timeout else cfg.get("probe_timeout", 30)
+        t = timeout if (timeout is not None and timeout > 0) else (cfg.get("probe_timeout") or 15)
+        if not t or t <= 0:
+            t = 15
         return _gemini_probe(model_id, api_key, base, timeout=t)
     if kind == "ollama-local":
         try:
-            import hermes_ollama_selector as hos
+            import importlib.util
+            from pathlib import Path as _P
+            _spec = importlib.util.spec_from_file_location(
+                "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
+            hos = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(hos)
             bu = hos.resolve_base_url()
         except Exception:
             bu = "http://localhost:11434"
@@ -650,8 +1081,8 @@ def load_config():
         return {}, yaml
 
 
-def write_config(passing, yaml_mod):
-    if not passing:
+def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=True):
+    if not passing and not chosen and not current_default:
         return
     try:
         if CONFIG_PATH.exists():
@@ -668,27 +1099,44 @@ def write_config(passing, yaml_mod):
             "provider_priority": dict(DEFAULT_PROVIDER_PRIORITY),
             "missing_release_date": 0.0,
         }
-    best = passing[0]
-    best_provider = best.get("_provider", "custom")
-    hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
+    # effective default: promoted chosen, or kept incumbent, or first passing
+    effective_default_id = None
+    default_model = None
+    if promote and chosen is not None:
+        default_model = chosen
+        effective_default_id = _model_id(chosen)
+    elif promote and current_default:
+        effective_default_id = current_default
+    elif promote and passing:
+        default_model = passing[0]
+        effective_default_id = _model_id(passing[0])
 
+    if default_model is not None:
+        best = default_model
+        best_provider = best.get("_provider", "custom")
+        hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
+        mcfg = cfg.setdefault("model", {})
+        if not isinstance(mcfg, dict):
+            mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
+            cfg["model"] = mcfg
+        mcfg["default"] = best["id"]
+        mcfg["provider"] = hermes_provider
+        if hermes_provider == "custom" and best.get("_base_url"):
+            mcfg["base_url"] = best["_base_url"]
+        else:
+            mcfg.pop("base_url", None)
+
+    # fallback chain: all passing except the effective default
     fb = []
-    for m in passing[1:]:
+    for m in (passing or []):
+        if effective_default_id and _model_id(m) == effective_default_id:
+            continue
         prov = m.get("_provider", "custom")
         hp = prov if prov in ("nous", "openrouter", "custom") else "custom"
         entry = {"provider": hp, "model": m["id"]}
         if hp == "custom" and m.get("_base_url"):
             entry["base_url"] = m["_base_url"]
         fb.append(entry)
-
-    mcfg = cfg.setdefault("model", {})
-    if not isinstance(mcfg, dict):
-        mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
-        cfg["model"] = mcfg
-    mcfg["default"] = best["id"]
-    mcfg["provider"] = hermes_provider
-    if hermes_provider == "custom" and best.get("_base_url"):
-        mcfg["base_url"] = best["_base_url"]
 
     existing = cfg.get("fallback_providers")
     if not isinstance(existing, list):
@@ -704,8 +1152,132 @@ def write_config(passing, yaml_mod):
         yaml_mod.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
         atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
         print(f"Updated {CONFIG_PATH}")
+        if effective_default_id:
+            print(f"  model.default -> {effective_default_id}")
     except Exception as e:
         print(f"ERROR writing config: {e}", file=sys.stderr)
+
+
+def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
+                     args, banned, cache, cache_lock, print_lock):
+    passing_list = []
+    probed_list = []
+
+    def _print(*a, **k):
+        with print_lock:
+            print(*a, **k)
+
+    _print(f"\n=== {cfg['display']} ({slug}) ===")
+    ok, vnote = providers.validate_key(cfg)
+    if not ok:
+        _print(f"  key validation failed: {vnote}")
+        return passing_list, probed_list, {"provider": slug, "fetched": 0, "passed": 0, "error": vnote}
+    if vnote and vnote != "no key required":
+        _print(f"  {vnote}")
+    models, err = fetch_provider(slug, cfg)
+    if err:
+        _print(f"  fetch error: {err}")
+        return passing_list, probed_list, {"provider": slug, "fetched": 0, "passed": 0, "error": err}
+
+    models = [m for m in (models or []) if not is_banned(m.get("id") if isinstance(m, dict) else m, banned)]
+    for m in models:
+        if isinstance(m, dict) and "_release_date" not in m:
+            m["_release_date"] = extract_release_date(m)
+        if isinstance(m, dict):
+            m["_capabilities"] = extract_capabilities(m)
+        if isinstance(m, dict) and m.get("context_window") is None:
+            approx_ctx = approximate_context(m)
+            if approx_ctx is not None:
+                m["context_window"] = approx_ctx
+
+    key, _ = providers.get_api_key(cfg)
+
+    if not cfg.get("probe", True):
+        cands = rank_models(models, ranking)
+        if top_n is not None:
+            cands = cands[:top_n]
+        _print(f"  fetched {len(models)} candidate(s); listing-only, including top {len(cands)} (unverified)")
+        passed_here = 0
+        for m in cands:
+            m["_provider"] = slug
+            m["_base_url"] = cfg.get("probe_base_url")
+            m["_probe_ok"] = None
+            m["_probe_note"] = "unverified (listing only, no probe)"
+            m["_reasoning"] = 0.0
+            passing_list.append(m)
+            passed_here += 1
+            probed_list.append({"model": m["id"], "test_passed": True, "clean_pass": False,
+                               "fail_note": "listing-only (no probe)", "release_date": m.get("_release_date")})
+        return passing_list, probed_list, {"provider": slug, "fetched": len(models), "probed": 0,
+                                           "passed": passed_here}
+
+    _print(f"  fetched {len(models)} candidate(s)")
+    cf = cfg.get("chat_filter")
+    if cf:
+        try:
+            mod_name, fn_name = cf.split(":", 1)
+            import importlib
+            mod = importlib.import_module(mod_name)
+            fn = getattr(mod, fn_name)
+            cands = [m for m in models if fn(m.get("id") or "")]
+            if top_n is not None:
+                cands = cands[:top_n]
+            _print(f"  {slug}: probing {len(cands)} chat-like models (account-gated; agreements matter)")
+        except Exception:
+            cands = rank_models(models, ranking)
+            if top_n is not None:
+                cands = cands[:top_n]
+    else:
+        cands = rank_models(models, ranking)
+        if top_n is not None:
+            cands = cands[:top_n]
+    _print(f"  probing top {len(cands)}")
+
+    can_probe = not (cfg.get("probe_kind") == "openai" and not key)
+    passed_here = 0
+    for m in cands:
+        mid = m.get("id")
+        if not can_probe:
+            if passed_here >= 1:
+                _print(f"    skip {mid}  (no API key to probe)")
+                continue
+            m["_provider"] = slug
+            m["_base_url"] = cfg.get("probe_base_url")
+            m["_probe_ok"] = None
+            m["_probe_note"] = "unverified (no API key to probe)"
+            m["_reasoning"] = 0.0
+            passing_list.append(m)
+            passed_here += 1
+            _print(f"    UNVERIFIED {mid}  (no API key to probe)")
+            probed_list.append({"model": mid, "test_passed": True, "clean_pass": False,
+                               "fail_note": "no API key to probe", "release_date": m.get("_release_date")})
+            continue
+        with cache_lock:
+            cr = cached_result(cache, slug, mid, args.refresh)
+        if cr is not None:
+            cached_passed, cached_note, cached_retried = cr
+            ok2, note, retried = cached_passed, cached_note, cached_retried
+            note = f"[cache] {note}"
+        else:
+            ok2, note, retried = probe(slug, cfg, mid, key, nightly,
+                                       timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
+            with cache_lock:
+                put_cache(cache, slug, mid, ok2, note, retried)
+        clean = bool(ok2) and not bool(retried)
+        m["_provider"] = slug
+        m["_base_url"] = cfg.get("probe_base_url")
+        m["_probe_ok"] = clean
+        m["_probe_note"] = note
+        m["_reasoning"] = reasoning_score_from_note(note)
+        if clean:
+            passing_list.append(m)
+            passed_here += 1
+        _print(f"    {'PASS' if clean else 'fail'} {mid}  ({note})")
+        probed_list.append({"model": mid, "test_passed": bool(ok2), "clean_pass": clean,
+                           "fail_note": None if ok2 else note, "release_date": m.get("_release_date")})
+
+    return passing_list, probed_list, {"provider": slug, "fetched": len(models), "probed": len(cands),
+                                       "passed": passed_here}
 
 
 def main():
@@ -731,10 +1303,70 @@ def main():
                     help="Retest a specific model id on the selected providers (repeatable)")
     ap.add_argument("--reasoning", action="store_true",
                     help="Probe with reasoning_effort=high and report reasoning chars")
+    ap.add_argument("--ban", action="append", metavar="MODEL_ID",
+                    help="Ban a model id (persisted; filtered from candidates)")
+    ap.add_argument("--unban", action="append", metavar="MODEL_ID",
+                    help="Unban a model id")
+    ap.add_argument("--list-banned", action="store_true",
+                    help="Print banned model ids and exit")
+    ap.add_argument("--promotion-margin", type=int, metavar="N",
+                    help=f"Consecutive clean passes required to be eligible (default {PROMOTION_MARGIN})")
+    ap.add_argument("--hysteresis-days", type=int, metavar="D",
+                    help=f"Days newer a challenger must be to displace incumbent (default {HYSTERESIS_DAYS})")
+    ap.add_argument("--no-emergency", action="store_true",
+                    help="Disable emergency promotion when incumbent is dead")
+    ap.add_argument("--show-history", action="store_true",
+                    help="Print promotion history table and exit")
+    ap.add_argument("--no-promote", action="store_true",
+                    help="Only refresh the fallback chain; leave model.default unchanged")
+    ap.add_argument("--hermes-home", metavar="PATH",
+                    help="Hermes home directory (overrides HERMES_HOME env / default)")
+    ap.add_argument("--capability", metavar="CAP",
+                    help="Keep only models whose _capabilities contains CAP")
+    ap.add_argument("--today", metavar="YYYY-MM-DD",
+                    help="Treat this run as happening on the given date (testing/backfill)")
     args = ap.parse_args()
 
-    global REASONING_MODE
-    REASONING_MODE = "high" if getattr(args, "reasoning", False) else None
+    if getattr(args, "hermes_home", None):
+        import os as _os
+        _os.environ["HERMES_HOME"] = args.hermes_home
+        global HERMES_HOME, CONFIG_PATH, CACHE_PATH, BANNED_PATH, PROMOTION_HISTORY_PATH
+        HERMES_HOME = Path(args.hermes_home)
+        CONFIG_PATH = HERMES_HOME / "config.yaml"
+        CACHE_PATH = HERMES_HOME / "cache" / "free_model_probe_cache.json"
+        BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
+        PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
+
+    reasoning_mode = "high" if getattr(args, "reasoning", False) else None
+
+    # --- ban list management ---
+    banned = load_banned()
+    if args.list_banned:
+        print("Banned models:")
+        for m in sorted(banned):
+            print(f"  {m}")
+        if not banned:
+            print("  (none)")
+        sys.exit(0)
+    if args.ban:
+        for m in args.ban:
+            banned.add(m)
+        save_banned(banned)
+        print(f"Banned: {', '.join(args.ban)}")
+    if args.unban:
+        for m in args.unban:
+            banned.discard(m)
+        save_banned(banned)
+        print(f"Unbanned: {', '.join(args.unban)}")
+    if args.ban or args.unban:
+        if not (args.show_ranking or args.set_weight or args.set_priority
+                or args.set_missing_release is not None or args.model):
+            if not (args.dry_run or args.apply or args.providers or args.full or args.nightly
+                    or args.top or args.json or args.show_history):
+                sys.exit(0)
+    if args.show_history:
+        show_promotion_history(load_promotion_history())
+        sys.exit(0)
 
     # --- ranking matrix management (no probing) ---
     if args.show_ranking or args.set_weight or args.set_priority or args.set_missing_release is not None:
@@ -829,197 +1461,191 @@ def main():
     if args.providers:
         user_list = [x.strip() for x in args.providers.split(",") if x.strip()]
 
-    cache = load_cache()
-    ranking = load_ranking_config()
-    global RANKING
-    RANKING = ranking
-    configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
+    import atomic_io
+    with atomic_io.file_lock(str(CACHE_PATH) + '.lock'):
+        cache = load_cache()
+        ranking = load_ranking_config()
+        configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
 
-    if args.model:
-        print("Targeted retest:")
-        for slug in configured:
-            cfg = providers.PROVIDERS[slug]
-            print(f"\n=== {cfg['display']} ({slug}) ===")
-            ok, vnote = providers.validate_key(cfg)
-            if not ok:
-                print(f"  key validation failed: {vnote}")
-                continue
-            key, _ = providers.get_api_key(cfg)
-            for mid in args.model:
-                if not cfg.get("probe", True):
-                    print(f"  {mid}: unverified (listing-only provider)")
+        if args.model:
+            print("Targeted retest:")
+            for slug in configured:
+                cfg = providers.PROVIDERS[slug]
+                print(f"\n=== {cfg['display']} ({slug}) ===")
+                ok, vnote = providers.validate_key(cfg)
+                if not ok:
+                    print(f"  key validation failed: {vnote}")
                     continue
-                if args.refresh:
-                    cr = None
-                else:
-                    cr = cached_result(cache, slug, mid, False)
-                if cr is not None:
-                    cached_passed, cached_note, cached_retried = cr
-                    passed, note, retried = cached_passed, cached_note, cached_retried
-                    note = f"[cache] {note}"
-                else:
-                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=REASONING_MODE)
-                    put_cache(cache, slug, mid, passed, note, retried)
-                clean = bool(passed) and not bool(retried)
-                print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
+                key, _ = providers.get_api_key(cfg)
+                for mid in args.model:
+                    if not cfg.get("probe", True):
+                        print(f"  {mid}: unverified (listing-only provider)")
+                        continue
+                    if args.refresh:
+                        cr = None
+                    else:
+                        cr = cached_result(cache, slug, mid, False)
+                    if cr is not None:
+                        cached_passed, cached_note, cached_retried = cr
+                        passed, note, retried = cached_passed, cached_note, cached_retried
+                        note = f"[cache] {note}"
+                    else:
+                        passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
+                        put_cache(cache, slug, mid, passed, note, retried)
+                    clean = bool(passed) and not bool(retried)
+                    print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
+            save_cache(cache)
+            sys.exit(0)
+
+        all_passing = []
+        probed_all = []
+        summary = []
+
+        banned_set = banned
+        cache_lock = threading.Lock()
+        print_lock = threading.Lock()
+
+        # Parallelize across providers: one worker per provider keeps each provider's
+        # quota isolated; shared cache/banned access is guarded by locks. Results are
+        # merged on the main thread so config/cache writes stay serialized.
+        provider_results = {}
+        with ThreadPoolExecutor(max_workers=max(1, len(configured))) as ex:
+            futures = {}
+            for slug in configured:
+                cfg = providers.PROVIDERS[slug]
+                futures[ex.submit(_process_provider, slug, cfg,
+                                 ranking=ranking, reasoning_mode=reasoning_mode,
+                                 top_n=top_n, nightly=nightly, args=args,
+                                 banned=banned_set, cache=cache, cache_lock=cache_lock,
+                                 print_lock=print_lock)] = slug
+            for fut in as_completed(futures):
+                slug = futures[fut]
+                try:
+                    passing_list, probed_list, summary_entry = fut.result()
+                except Exception as e:
+                    print(f"  provider {slug} failed: {e}", file=sys.stderr)
+                    passing_list, probed_list, summary_entry = [], [], {"provider": slug, "fetched": 0, "passed": 0, "error": str(e)}
+                all_passing.extend(passing_list)
+                probed_all.extend(probed_list)
+                summary.append(summary_entry)
+
         save_cache(cache)
-        sys.exit(0)
 
-    all_passing = []
-    summary = []
+        if getattr(args, "capability", None):
+            cap = args.capability.lower().strip()
+            all_passing = [m for m in all_passing if cap in (m.get("_capabilities") or set())]
 
-    for slug in configured:
-        cfg = providers.PROVIDERS[slug]
-        print(f"\n=== {cfg['display']} ({slug}) ===")
-        ok, vnote = providers.validate_key(cfg)
-        if not ok:
-            print(f"  key validation failed: {vnote}")
-            summary.append({"provider": slug, "fetched": 0, "passed": 0, "error": vnote})
-            continue
-        if vnote and vnote != "no key required":
-            print(f"  {vnote}")
-        models, err = fetch_provider(slug, cfg)
-        if err:
-            print(f"  fetch error: {err}")
-            summary.append({"provider": slug, "fetched": 0, "passed": 0, "error": err})
-            continue
+        all_passing = rank_models(all_passing, ranking)
 
-        for m in models:
-            if isinstance(m, dict) and "_release_date" not in m:
-                m["_release_date"] = extract_release_date(m)
-
-        key, _ = providers.get_api_key(cfg)
-
-        if not cfg.get("probe", True):
-            cands = rank_models(models, RANKING)[:top_n]
-            print(f"  fetched {len(models)} candidate(s); listing-only, including top {len(cands)} (unverified)")
-            passed_here = 0
-            for m in cands:
-                m["_provider"] = slug
-                m["_base_url"] = cfg.get("probe_base_url")
-                m["_probe_ok"] = None
-                m["_probe_note"] = "unverified (listing only, no probe)"
-                m["_reasoning"] = 0.0
-                all_passing.append(m)
-                passed_here += 1
-            summary.append({"provider": slug, "fetched": len(models), "probed": 0,
-                            "passed": passed_here})
-            continue
-
-        print(f"  fetched {len(models)} candidate(s)")
-        if slug == "nvidia":
+        # --- promotion gate ---
+        margin = args.promotion_margin if args.promotion_margin is not None else PROMOTION_MARGIN
+        hyst = args.hysteresis_days if args.hysteresis_days is not None else HYSTERESIS_DAYS
+        emergency = not args.no_emergency
+        promote = not getattr(args, "no_promote", False)
+        import atomic_io
+        with atomic_io.file_lock(str(PROMOTION_HISTORY_PATH) + '.lock'):
+            history = load_promotion_history()
+            today = getattr(args, "today", None) or datetime.now(timezone.utc).date().isoformat()
+            # validate
             try:
-                import poll_nvidia as _pn
-                cands = [m for m in models if _pn._is_chat_like(m.get("id") or "")]
-                if top_n is not None:
-                    cands = cands[:top_n]
-                print(f"  nvidia: probing {len(cands)} chat-like models (account-gated; agreements matter)")
-            except Exception:
-                cands = rank_models(models, RANKING)
-                if top_n is not None:
-                    cands = cands[:top_n]
-        else:
-            cands = rank_models(models, RANKING)
-            if top_n is not None:
-                cands = cands[:top_n]
-        print(f"  probing top {len(cands)}")
+                date.fromisoformat(today)
+            except ValueError:
+                print(f"ERROR: --today expects YYYY-MM-DD, got '{today}'")
+                sys.exit(2)
 
-        can_probe = True
-        if cfg.get("probe_kind") == "openai" and not key:
-            can_probe = False
+            dry = args.dry_run
+            if not args.dry_run and not args.apply:
+                dry = False
+            if args.dry_run:
+                dry = True
 
-        passed_here = 0
-        for m in cands:
-            mid = m.get("id")
-            if not can_probe:
-                if passed_here >= 1:
-                    print(f"    skip {mid}  (no API key to probe)")
+            if not dry:
+                update_promotion_history(history, probed_all, today)
+                removed = prune_promotion_history(history, today)
+                if removed:
+                    print(f"  Pruned {len(removed)} stale history entr(ies): {', '.join(removed)}")
+                save_promotion_history(history)
+
+            cfg0, _ = load_config()
+            current_default = ""
+            if isinstance(cfg0, dict):
+                mc = cfg0.get("model")
+                if isinstance(mc, dict):
+                    current_default = str(mc.get("default") or "")
+            chosen, reason = (None, "--no-promote: chain only") if not promote else choose_default(
+                all_passing, probed_all, history, current_default, margin, hyst, emergency=emergency)
+            if promote:
+                print(f"\nPromotion gate: {reason}")
+
+            if not dry and promote and chosen is not None:
+                mid = _model_id(chosen)
+                rec = history.setdefault(mid, _blank_promo_record(today))
+                # ensure fields
+                for k, v in _blank_promo_record(today).items():
+                    rec.setdefault(k, v)
+                if current_default != mid:
+                    rec["promotion_count"] = rec.get("promotion_count", 0) + 1
+                    rec["promoted_at"] = today
+                save_promotion_history(history)
+
+        save_last_selection(all_passing)
+
+        print("\n" + "=" * 70)
+        print(f"Passing models ({len(all_passing)}):")
+        print("=" * 70)
+        for i, m in enumerate(all_passing, 1):
+            print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
+
+        if args.json:
+            payload = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "nightly": nightly,
+                "top_n": top_n,
+                "passing_count": len(all_passing),
+                "passing": [
+                    {
+                        "id": m.get("id"),
+                        "provider": m.get("_provider"),
+                        "context_window": m.get("context_window"),
+                        "release_date": m.get("_release_date"),
+                        "score": m.get("_score"),
+                        "score_parts": m.get("_score_parts"),
+                        "base_url": m.get("_base_url"),
+                    }
+                    for m in all_passing
+                ],
+                "summary": summary,
+            }
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+        if not all_passing:
+            print("\nNo models passed probing -- config untouched.")
+            sys.exit(0)
+
+        dry = args.dry_run
+        if not args.dry_run and not args.apply:
+            dry = False
+        if args.dry_run:
+            dry = True
+
+        if dry:
+            print("\nDRY RUN -- nothing written. Would set:")
+            if chosen is not None:
+                print(f"  model.default -> {chosen['id']}  ({reason})")
+            elif current_default:
+                print(f"  model.default -> {current_default}  (unchanged; gate kept incumbent)")
+            elif all_passing:
+                print(f"  model.default -> {all_passing[0]['id']}")
+            eff_id = _model_id(chosen) if chosen is not None else current_default
+            for m in all_passing:
+                if eff_id and _model_id(m) == eff_id:
                     continue
-                m["_provider"] = slug
-                m["_base_url"] = cfg.get("probe_base_url")
-                m["_probe_ok"] = None
-                m["_probe_note"] = "unverified (no API key to probe)"
-                m["_reasoning"] = 0.0
-                all_passing.append(m)
-                passed_here += 1
-                print(f"    UNVERIFIED {mid}  (no API key to probe)")
-                continue
-            cr = cached_result(cache, slug, mid, args.refresh)
-            if cr is not None:
-                cached_passed, cached_note, cached_retried = cr
-                ok, note, retried = cached_passed, cached_note, cached_retried
-                note = f"[cache] {note}"
-            else:
-                ok, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=REASONING_MODE)
-                put_cache(cache, slug, mid, ok, note, retried)
-            clean = bool(ok) and not bool(retried)
-            m["_provider"] = slug
-            m["_base_url"] = cfg.get("probe_base_url")
-            m["_probe_ok"] = clean
-            m["_probe_note"] = note
-            m["_reasoning"] = reasoning_score_from_note(note)
-            if clean:
-                all_passing.append(m)
-                passed_here += 1
-            print(f"    {'PASS' if clean else 'fail'} {mid}  ({note})")
-        summary.append({"provider": slug, "fetched": len(models), "probed": len(cands),
-                        "passed": passed_here})
+                print(f"  fallback: {m['id']} ({m['_provider']})")
+            sys.exit(0)
 
-    save_cache(cache)
-
-    all_passing = rank_models(all_passing, RANKING)
-
-    save_last_selection(all_passing)
-
-    print("\n" + "=" * 70)
-    print(f"Passing models ({len(all_passing)}):")
-    print("=" * 70)
-    for i, m in enumerate(all_passing, 1):
-        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
-
-    if args.json:
-        payload = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "nightly": nightly,
-            "top_n": top_n,
-            "passing_count": len(all_passing),
-            "passing": [
-                {
-                    "id": m.get("id"),
-                    "provider": m.get("_provider"),
-                    "context_window": m.get("context_window"),
-                    "release_date": m.get("_release_date"),
-                    "score": m.get("_score"),
-                    "score_parts": m.get("_score_parts"),
-                    "base_url": m.get("_base_url"),
-                }
-                for m in all_passing
-            ],
-            "summary": summary,
-        }
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-    if not all_passing:
-        print("\nNo models passed probing -- config untouched.")
-        sys.exit(0)
-
-    dry = args.dry_run
-    if not args.dry_run and not args.apply:
-        dry = False
-    if args.dry_run:
-        dry = True
-
-    if dry:
-        print("\nDRY RUN -- nothing written. Would set:")
-        if all_passing:
-            print(f"  model.default -> {all_passing[0]['id']}")
-        for m in all_passing[1:]:
-            print(f"  fallback: {m['id']} ({m['_provider']})")
-        sys.exit(0)
-
-    import yaml
-    write_config(all_passing, yaml)
-    print("Done.")
+        import yaml
+        write_config(all_passing, yaml, chosen=chosen, current_default=current_default, promote=promote)
+        print("Done.")
 
 
 if __name__ == "__main__":

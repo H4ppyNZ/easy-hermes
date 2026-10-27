@@ -9,13 +9,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-try:
-    import safe_url
-except Exception:
-    class safe_url:  # type: ignore
-        @staticmethod
-        def safe_next(nxt, base):
-            return nxt
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safe_url
 try:
     import poll_base
 except Exception:
@@ -93,39 +89,14 @@ def http_get_json(url, api_key=None, timeout=20, retries=3):
     }
     if api_key:
         headers["Authorization"] = "Bearer " + api_key
-    if poll_base is not None:
-        data, err = poll_base.http_get_json(
-            url, headers=headers, timeout=timeout, backoff=RETRY_BACKOFF,
-            urlopen=urllib.request.urlopen, sleep=time.sleep)
-        if err:
-            raise RuntimeError(f"http_get_json failed: {err}")
-        return data
-    # fallback: original inline implementation (keeps behavior if poll_base missing)
-    last_exc = None
-    attempts = max(1, int(retries or 1))
-    for attempt in range(attempts):
-        try:
-            req = urllib.request.Request(url, headers=headers, method="GET")
-            with _open(req, timeout) as resp:
-                raw = resp.read()
-            text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
-            return json.loads(text)
-        except urllib.error.HTTPError as e:
-            last_exc = e
-            code = getattr(e, "code", None)
-            if code not in (429, 500, 502, 503, 504) or attempt == attempts - 1:
-                raise
-        except Exception as e:
-            last_exc = e
-            if attempt == attempts - 1:
-                raise
-        try:
-            time.sleep(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
-        except Exception:
-            pass
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("http_get_json: no response")
+    if poll_base is None:
+        raise RuntimeError("poll_base unavailable")
+    data, err = poll_base.http_get_json(
+        url, headers=headers, timeout=timeout, backoff=RETRY_BACKOFF,
+        urlopen=urllib.request.urlopen, sleep=time.sleep)
+    if err:
+        raise RuntimeError(f"http_get_json failed: {err}")
+    return data
 
 
 def next_page_url(payload, current_url, collected):
@@ -203,6 +174,15 @@ def normalize_model(item, source=None):
             except (TypeError, ValueError):
                 rec[k] = raw.get(k)
 
+    if rec.get("context_window") is None:
+        for k in ("context_size", "context_length", "max_context_window", "max_context_tokens"):
+            if k in rec and rec.get(k) is not None:
+                try:
+                    rec["context_window"] = int(rec.get(k))
+                except (TypeError, ValueError):
+                    rec["context_window"] = rec.get(k)
+                break
+
     rlevels = raw.get("supported_reasoning_levels")
     if isinstance(rlevels, list):
         rec["reasoning_levels"] = [str(x.get("effort") if isinstance(x, dict) else x)
@@ -212,7 +192,7 @@ def normalize_model(item, source=None):
         rec["source"] = source
 
     for k in ("visibility", "supported_in_api", "owned_by", "object", "created",
-              "title", "description", "display_name", "model_type", "status",
+              "modified_at", "updated_at", "title", "description", "display_name", "model_type", "status",
               "endpoints", "input_modalities", "output_modalities",
               "input_token_price_per_m", "output_token_price_per_m", "pricing"):
         if k in raw and raw.get(k) is not None:
@@ -471,11 +451,7 @@ def fetch_models(endpoints=None, api_key=None, timeout=20, retries=3,
     return deduped
 
 
-def fetch_novita_models(*a, **kw):
-    return fetch_models(*a, **kw)
-
-
-def fetch_novita_free_models(*a, **kw):
+def fetch_free_models(*a, **kw):
     kw.setdefault("free_only", True)
     return fetch_models(*a, **kw)
 
@@ -487,33 +463,12 @@ def poll(*a, **kw):
         return []
 
 
-def poll_novita(*a, **kw):
-    return fetch_models(*a, **kw)
-
-
-def get_models(*a, **kw):
-    return fetch_models(*a, **kw)
-
-
-def list_models(*a, **kw):
-    return fetch_models(*a, **kw)
-
-
-def fetch_free_models(*a, **kw):
-    kw.setdefault("free_only", True)
-    return fetch_models(*a, **kw)
+def is_free_model(model):
+    return is_free(model)
 
 
 def normalize(item, source=None):
     return normalize_model(item, source)
-
-
-def normalize_models(items, source=None):
-    return [normalize_model(i, source) for i in (items or [])]
-
-
-def is_free_model(model):
-    return is_free(model)
 
 
 def filter_free_models(models):

@@ -34,6 +34,14 @@ def http_get_json(url, headers=None, timeout=30, backoff=(1.0, 2.0, 4.0),
             req = urllib.request.Request(url, headers=headers)
             with urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
+                status = getattr(resp, "status", None)
+                if status is None:
+                    try:
+                        status = resp.getcode()
+                    except Exception:
+                        status = None
+                if isinstance(status, int) and (status == 429 or status >= 500):
+                    raise urllib.error.HTTPError(url, status, f"HTTP {status}", getattr(resp, "headers", None), None)
             try:
                 return json.loads(raw.decode("utf-8")), None
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -60,7 +68,7 @@ def safe_origin_check(nxt, base):
         import safe_url
         return safe_url.safe_next(nxt, base)
     except Exception:
-        return nxt
+        return None
 
 
 def paginate(fetch_fn, start_url, next_fn, visited=None):
@@ -126,6 +134,14 @@ def http_get_full(url, headers=None, timeout=30, backoff=(1.0, 2.0, 4.0),
             with urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
                 resp_headers = dict(resp.headers or {})
+                status = getattr(resp, "status", None)
+                if status is None:
+                    try:
+                        status = resp.getcode()
+                    except Exception:
+                        status = None
+                if isinstance(status, int) and (status == 429 or status >= 500):
+                    raise urllib.error.HTTPError(url, status, f"HTTP {status}", resp.headers, None)
             try:
                 return json.loads(raw.decode("utf-8")), resp_headers, None
             except (json.JSONDecodeError, UnicodeDecodeError) as e:

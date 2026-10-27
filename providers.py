@@ -25,6 +25,7 @@ PROVIDERS = {
         "probe": True,
         "probe_kind": "openai",
         "probe_base_url": "https://openrouter.ai/api/v1",
+        "probe_timeout": 15,
         "probe_headers": {
             "HTTP-Referer": "https://github.com/H4ppyNZ/easy-hermes",
             "X-Title": "easy-hermes",
@@ -48,6 +49,7 @@ PROVIDERS = {
         "default_enabled": True,
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
+        "chat_filter": "poll_nvidia:_is_chat_like",
     },
     "gemini": {
         "slug": "gemini",
@@ -60,6 +62,7 @@ PROVIDERS = {
         "probe": True,
         "probe_kind": "gemini",
         "probe_base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "probe_timeout": 15,
         "default_enabled": True,
         "probe_top_first_run": 3,
         "probe_top_nightly": 12,
@@ -200,11 +203,6 @@ def configured_providers(user_list=None, prefer_local=False):
 def get_api_key(cfg):
     import os
     for k in cfg.get("env_any", []) + cfg.get("env_optional", []):
-        v = os.environ.get(k)
-        if v and str(v).strip():
-            return str(v).strip(), k
-    # fallback: any optional
-    for k in cfg.get("env_optional", []):
         v = os.environ.get(k)
         if v and str(v).strip():
             return str(v).strip(), k

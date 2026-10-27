@@ -6,13 +6,14 @@ import sys
 import time
 import urllib.error
 import urllib.parse
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safe_url
+
 try:
-    import safe_url
+    import poll_base
 except Exception:
-    class safe_url:  # type: ignore
-        @staticmethod
-        def safe_next(nxt, base):
-            return nxt
+    poll_base = None
 import urllib.request
 from urllib.parse import urljoin
 from pathlib import Path
@@ -37,10 +38,13 @@ _env_base = os.environ.get("NVIDIA_BASE_URL") or os.environ.get("NIM_BASE_URL")
 if _env_base:
     try:
         import urllib.parse as _up
-        _host = _up.urlsplit(_env_base).netloc.lower()
+        _parsed = _up.urlsplit(_env_base)
+        _host = _parsed.netloc.lower()
+        _scheme = _parsed.scheme.lower()
     except Exception:
         _host = ""
-    if _host in ("", "integrate.api.nvidia.com"):
+        _scheme = ""
+    if _host and _host in ("integrate.api.nvidia.com",) and _scheme in ("", "http", "https"):
         _b = _env_base.rstrip("/")
         if not _b.endswith("/models"):
             _b = _b + "/models"
@@ -357,6 +361,7 @@ def normalize_model(model, rate_limits=None, headers=None, **kwargs):
         "id": mid,
         "display_name": display,
         "context_window": ctx,
+        "created": model.get("created"),
         "rate_limits": rate_limits,
         "notes": notes,
     }
@@ -441,54 +446,27 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
     parsed_rate_limits = rate_limits
 
     base_origin_url = url
+    _backoff = tuple(backoff[:max(0, int(retries) - 1)]) if isinstance(backoff, (list, tuple)) else backoff
     while url:
         if url in visited:
             break
         visited.add(url)
 
-        last_err = None
-        data = None
-        page_headers = None
-        success = False
-        for attempt in range(max(1, int(retries))):
-            status, hdrs, body, err = _http_get(url, headers, timeout)
-            page_headers = hdrs
-            if err is not None:
-                last_err = err
-                delay = backoff[min(attempt, len(backoff) - 1)]
-                time.sleep(delay)
-                continue
-            if status == 429 or (isinstance(status, int) and status >= 500):
-                last_err = NvidiaHTTPError(f"HTTP {status}")
-                ra = None
-                try:
-                    ra = hdrs.get("Retry-After") or hdrs.get("retry-after")
-                except Exception:
-                    ra = None
-                try:
-                    delay = float(ra) if ra is not None else backoff[min(attempt, len(backoff) - 1)]
-                except (TypeError, ValueError):
-                    delay = backoff[min(attempt, len(backoff) - 1)]
-                time.sleep(delay)
-                continue
-            if isinstance(status, int) and status >= 400:
-                raise NvidiaHTTPError(f"HTTP {status}: {body}")
-            if status is None:
-                last_err = NvidiaHTTPError("no response status")
-                delay = backoff[min(attempt, len(backoff) - 1)]
-                time.sleep(delay)
-                continue
-            data = body
-            success = True
-            rl = _parse_rate_limits(hdrs)
-            if rl is not None:
-                parsed_rate_limits = rl
-            break
+        if poll_base is not None:
+            data, page_headers, err = poll_base.http_get_full(
+                url, headers=headers, timeout=timeout, backoff=_backoff,
+                urlopen=urlopen, sleep=time.sleep)
+        else:
+            # fallback (should not normally happen)
+            data, page_headers, err = None, None, "poll_base unavailable"
+        if err is not None:
+            raise NvidiaHTTPError(err)
+        if not isinstance(data, (dict, list)):
+            data = {}
 
-        if not success:
-            if isinstance(last_err, Exception):
-                raise last_err
-            raise NvidiaHTTPError(f"failed to fetch {url}")
+        rl = _parse_rate_limits(page_headers or {})
+        if rl is not None:
+            parsed_rate_limits = rl
 
         if isinstance(data, dict):
             page = data.get("data")
@@ -503,10 +481,8 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
             page = data
         else:
             page = []
-
         if not isinstance(page, list):
             page = []
-
         all_raw.extend([m for m in page if isinstance(m, dict)])
 
         nxt = _next_url(data, url) if isinstance(data, dict) else None
@@ -521,9 +497,6 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
     return normalized
 
 
-fetch_nvidia_models = fetch_models
-list_models = fetch_models
-get_models = fetch_models
 def poll(*a, **kw):
     try:
         return fetch_models(*a, **kw)
@@ -532,7 +505,6 @@ def poll(*a, **kw):
 
 
 poll_models = poll
-poll_nvidia = fetch_models
 fetch = fetch_models
 
 

@@ -17,13 +17,9 @@ import sys
 import time
 import urllib.error
 import urllib.parse
-try:
-    import safe_url
-except Exception:
-    class safe_url:  # type: ignore
-        @staticmethod
-        def safe_next(nxt, base):
-            return nxt
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import safe_url
 import urllib.request
 from pathlib import Path
 
@@ -59,14 +55,13 @@ def is_free_model(model) -> bool:
     if isinstance(pricing, dict):
         prompt = pricing.get("prompt")
         completion = pricing.get("completion")
-        if _zero_price(prompt) and _zero_price(completion):
-            return True
+        # If explicit pricing is present, it wins over the :free suffix.
+        if prompt is not None or completion is not None:
+            return _zero_price(prompt) and _zero_price(completion)
     mid = model.get("id") or model.get("model") or model.get("name") or ""
     return str(mid).endswith(":free")
 
 
-is_free = is_free_model
-is_free_entry = is_free_model
 
 
 def normalize_model(model) -> dict:
@@ -99,7 +94,6 @@ def normalize_model(model) -> dict:
     }
 
 
-normalize = normalize_model
 
 
 def _build_headers(api_key=None):
@@ -114,43 +108,10 @@ def _build_headers(api_key=None):
 
 
 def http_get_json(url, headers=None, timeout=DEFAULT_TIMEOUT, backoff=BACKOFF):
-    try:
-        import poll_base
-    except Exception:
-        poll_base = None
-    if poll_base is not None:
-        return poll_base.http_get_json(
-            url, headers=headers, timeout=timeout, backoff=backoff,
-            urlopen=urllib.request.urlopen, sleep=time.sleep)
-    # fallback (should not happen)
-    headers = headers or {}
-    last_error = None
-    delays = (0,) + tuple(backoff)
-    for idx, delay in enumerate(delays):
-        if delay:
-            time.sleep(delay)
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-            try:
-                return json.loads(raw.decode("utf-8")), None
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                return None, f"invalid JSON: {e}"
-        except urllib.error.HTTPError as e:
-            try:
-                body = e.read().decode("utf-8", "replace")[:200]
-            except Exception:
-                body = ""
-            last_error = f"HTTP {e.code}: {e.reason} {body}".strip()
-            retryable = e.code == 429 or e.code >= 500
-        except Exception as e:
-            last_error = f"{type(e).__name__}: {e}"
-            retryable = True
-
-        if idx == len(delays) - 1 or not retryable:
-            break
-    return None, last_error
+    import poll_base
+    return poll_base.http_get_json(
+        url, headers=headers, timeout=timeout, backoff=backoff,
+        urlopen=urllib.request.urlopen, sleep=time.sleep)
 
 
 def _next_url(payload, current, endpoint):
@@ -233,11 +194,7 @@ def fetch_all_models(api_key=None, timeout=DEFAULT_TIMEOUT, endpoint=ENDPOINT,
 
 
 fetch_models = fetch_all_models
-fetch_openrouter_models = fetch_all_models
-list_models = fetch_all_models
 fetch_free_models = fetch_all_models
-get_free_models = fetch_all_models
-get_models = fetch_all_models
 
 
 def poll(api_key=None, timeout=DEFAULT_TIMEOUT, endpoint=ENDPOINT, backoff=BACKOFF):

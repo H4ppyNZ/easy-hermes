@@ -1,4 +1,4 @@
 ﻿$env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
-& 'C:\Users\mattw\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe' 'C:\Users\mattw\Documents\repos\easy-hermes\hermes-model-selector.py' --hermes-home 'C:\Users\mattw\AppData\Local\hermes' @args
+& 'C:\Users\mattw\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe' 'C:\Users\mattw\Documents\repos\easy-hermes\select-models.py' --hermes-home 'C:\Users\mattw\AppData\Local\hermes' @args
 exit $LASTEXITCODE
