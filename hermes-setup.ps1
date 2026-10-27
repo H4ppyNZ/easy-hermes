@@ -549,4 +549,22 @@ if (-not $SkipDocs) {
 "@
 }
 
+# --- Scheduler registration (yolo) -----------------------------------------
+if ($Yolo) {
+    Write-Step "Registering scheduled tasks (yolo)"
+    foreach ($scriptName in @("Set-ModelSelectorTask.ps1", "Set-NightlyTask.ps1", "Set-ReviewTask.ps1")) {
+        $scriptPath = Join-Path $PSScriptRoot $scriptName
+        if (Test-Path -LiteralPath $scriptPath -PathType Leaf) {
+            try {
+                & $scriptPath
+                Write-Ok "registered: $scriptName"
+            } catch {
+                Write-Warn "failed to register ${scriptName}: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Info "skipping missing $scriptName"
+        }
+    }
+}
+
 Write-Step "Done. Next: hermes   (or: hermes chat -q `"hello`")"

@@ -81,6 +81,8 @@ not rewrite `config.yaml`.
 - `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
+- `Set-ReviewTask.ps1` — registers a daily Windows scheduled task that reviews the nightly run (6 AM)
+- `ReviewNightlyTask.ps1` — the review script (task health, event log, config, gateway)
 - `docs/installer-safety.md` — blast radius and safe re-run order for each step
 - `tools/` — operational helper scripts (fallback config) with README
 - `README.md` — this file
