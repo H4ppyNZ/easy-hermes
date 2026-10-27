@@ -12,6 +12,10 @@ def _as_ids(chain) -> list[str]:
     out: list[str] = []
     if chain is None:
         return out
+    if isinstance(chain, str):
+        return [chain] if chain else out
+    if not hasattr(chain, "__iter__"):
+        return out
     for item in chain:
         if isinstance(item, str):
             out.append(item)

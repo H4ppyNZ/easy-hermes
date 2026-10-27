@@ -44,7 +44,7 @@ if _env_base:
     except Exception:
         _host = ""
         _scheme = ""
-    if _host and _host in ("integrate.api.nvidia.com",) and _scheme in ("", "http", "https"):
+    if _host and _host in ("integrate.api.nvidia.com",) and _scheme == "https" and _parsed.username is None and _parsed.password is None:
         _b = _env_base.rstrip("/")
         if not _b.endswith("/models"):
             _b = _b + "/models"
@@ -429,6 +429,15 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
         backoff = DEFAULT_BACKOFF
 
     if base_url:
+        try:
+            import urllib.parse as _up
+            _pu = _up.urlsplit(str(base_url))
+            if (_pu.scheme.lower() != "https" or _pu.hostname != "integrate.api.nvidia.com"
+                    or _pu.username or _pu.password):
+                base_url = None
+        except Exception:
+            base_url = None
+    if base_url:
         url = str(base_url).rstrip("/")
         if not url.endswith("/models"):
             url = url + "/models"
@@ -490,6 +499,17 @@ def fetch_models(api_key=None, base_url=None, timeout=DEFAULT_TIMEOUT,
         if url and url in visited:
             url = None
 
+    # dedup by id across pages
+    _seen = set()
+    _deduped = []
+    for m in all_raw:
+        mid = m.get("id") if isinstance(m, dict) else None
+        if mid is not None and mid in _seen:
+            continue
+        if mid is not None:
+            _seen.add(mid)
+        _deduped.append(m)
+    all_raw = _deduped
     filtered = filter_models(all_raw)
 
     rl_for_models = parsed_rate_limits if parsed_rate_limits is not None else rate_limits
@@ -598,13 +618,15 @@ def main(argv=None):
         else:
             d = out_dir if out_dir else "out"
             write_path = Path(d) / "nvidia.json"
+        if ".." in write_path.parts:
+            say("ERROR: --out path must not contain '..'")
+            sys.exit(2)
         if write_path is not None:
             try:
                 write_path.parent.mkdir(parents=True, exist_ok=True)
                 payload = {"source": MODELS_URL, "count": len(models), "models": models}
-                with open(write_path, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, indent=2, ensure_ascii=False)
-                    f.write("\n")
+                import atomic_io
+                atomic_io.atomic_write_text(write_path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 say(f"Wrote JSON: {write_path}")
             except OSError as e:
                 say(f"ERROR writing {write_path}: {e}")

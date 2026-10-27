@@ -393,12 +393,14 @@ HISTORY_PRUNE_DAYS = 30
 
 def load_banned():
     try:
-        if BANNED_PATH.exists():
-            data = json.loads(BANNED_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return set(str(x) for x in data)
-            if isinstance(data, dict):
-                return set(str(x) for x in data.get("banned", []))
+        import atomic_io
+        with atomic_io.file_lock(str(BANNED_PATH) + ".lock"):
+            if BANNED_PATH.exists():
+                data = json.loads(BANNED_PATH.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return set(str(x) for x in data)
+                if isinstance(data, dict):
+                    return set(str(x) for x in data.get("banned", []))
     except Exception:
         pass
     return set()
@@ -407,7 +409,8 @@ def load_banned():
 def save_banned(banned):
     try:
         import atomic_io
-        atomic_io.atomic_write_json(BANNED_PATH, sorted(banned), indent=2)
+        with atomic_io.file_lock(str(BANNED_PATH) + ".lock"):
+            atomic_io.atomic_write_json(BANNED_PATH, sorted(banned), indent=2)
     except Exception as e:
         print(f"  (banned list write failed: {e})", file=sys.stderr)
 
@@ -507,7 +510,7 @@ def extract_capabilities(m):
     if isinstance(arch, dict):
         mod = arch.get("modality")
         if isinstance(mod, str):
-            for part in mod.replace(",", " ").split():
+            for part in mod.replace(",", " ").replace("+", " ").replace("/", " ").split():
                 caps.add(part.lower().strip())
         for k, v in arch.items():
             if isinstance(v, bool) and v:
@@ -530,33 +533,35 @@ def extract_capabilities(m):
 
 
 _OR_CONTEXT_MAP = None
+_OR_CTX_LOCK = threading.Lock()
 
 
 def _get_or_context_map():
     global _OR_CONTEXT_MAP
-    if _OR_CONTEXT_MAP is not None:
+    with _OR_CTX_LOCK:
+        if _OR_CONTEXT_MAP is not None:
+            return _OR_CONTEXT_MAP
+        _OR_CONTEXT_MAP = {}
+        try:
+            import urllib.request, json, os
+            key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_KEY")
+            url = "https://openrouter.ai/api/v1/models"
+            headers = {"Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            for m in (data.get("data") or []):
+                mid = m.get("id")
+                ctx = m.get("context_length")
+                if mid and ctx is not None:
+                    _OR_CONTEXT_MAP[str(mid)] = ctx
+                    name = str(mid).split("/")[-1].lower()
+                    _OR_CONTEXT_MAP.setdefault(name, ctx)
+        except Exception:
+            pass
         return _OR_CONTEXT_MAP
-    _OR_CONTEXT_MAP = {}
-    try:
-        import urllib.request, json, os
-        key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_KEY")
-        url = "https://openrouter.ai/api/v1/models"
-        headers = {"Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
-        if key:
-            headers["Authorization"] = f"Bearer {key}"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-        for m in (data.get("data") or []):
-            mid = m.get("id")
-            ctx = m.get("context_length")
-            if mid and ctx is not None:
-                _OR_CONTEXT_MAP[str(mid)] = ctx
-                name = str(mid).split("/")[-1].lower()
-                _OR_CONTEXT_MAP.setdefault(name, ctx)
-    except Exception:
-        pass
-    return _OR_CONTEXT_MAP
 
 
 def _normalize_key(s):
@@ -837,28 +842,6 @@ def rank_models(models, ranking=None):
 
 
 def fetch_provider(slug, cfg):
-    if slug == "ollama-local":
-        try:
-            import importlib.util
-            from pathlib import Path as _P
-            _spec = importlib.util.spec_from_file_location(
-                "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
-            hos = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(hos)
-            base = hos.resolve_base_url()
-            raws = hos.fetch_models(base)
-            out = []
-            for m in raws or []:
-                out.append({
-                    "id": m.get("name") or m.get("model"),
-                    "display_name": m.get("name") or m.get("model"),
-                    "context_window": m.get("context_length"),
-                    "rate_limits": None,
-                    "notes": "local ollama (free)",
-                })
-            return out, None
-        except Exception as e:
-            return [], str(e)
     modname = cfg["module"]
     try:
         mod = __import__(modname)
@@ -888,6 +871,9 @@ def fetch_provider(slug, cfg):
     out = []
     for r in raws:
         if not isinstance(r, dict):
+            continue
+        mid = r.get("id") if "id" in r else (r.get("id") or r.get("name") or r.get("model") or r.get("slug"))
+        if mid is None:
             continue
         if "id" not in r:
             mid = r.get("id") or r.get("name") or r.get("model") or r.get("slug")
@@ -965,6 +951,9 @@ def _openai_probe(model_id, base_url, api_key, timeout=15, extra_headers=None, r
 
 
 def _gemini_probe(model_id, api_key, base_url, timeout=15):
+    import re as _re
+    if not isinstance(model_id, str) or not _re.fullmatch(r"[A-Za-z0-9._\-/]+", model_id):
+        return False, "invalid model id", False
     mid = model_id
     if not mid.startswith("models/"):
         mid = "models/" + mid
@@ -1024,16 +1013,8 @@ def _gemini_probe(model_id, api_key, base_url, timeout=15):
 
 def _ollama_local_probe(model_id, base_url, timeout=60):
     try:
-        import importlib.util
-        from pathlib import Path as _P
-        _spec = importlib.util.spec_from_file_location(
-            "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
-        hos = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(hos)
-    except Exception as e:
-        return False, f"import failed: {e}", False
-    try:
-        ok, note, retried = hos.probe_model(model_id, hos.openai_base(base_url), fast=False)
+        import poll_ollama_local as _pol
+        ok, note, retried = _pol.probe_model(model_id, _pol.openai_base(base_url), fast=False)
         return bool(ok), str(note), bool(retried)
     except Exception as e:
         return False, f"{type(e).__name__}: {e}", False
@@ -1057,13 +1038,8 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
         return _gemini_probe(model_id, api_key, base, timeout=t)
     if kind == "ollama-local":
         try:
-            import importlib.util
-            from pathlib import Path as _P
-            _spec = importlib.util.spec_from_file_location(
-                "hermes_ollama_selector", _P(__file__).parent / "hermes-ollama-selector.py")
-            hos = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(hos)
-            bu = hos.resolve_base_url()
+            import poll_ollama_local as _pol
+            bu = _pol.resolve_base_url()
         except Exception:
             bu = "http://localhost:11434"
         return _ollama_local_probe(model_id, bu)
@@ -1084,82 +1060,92 @@ def load_config():
 def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=True):
     if not passing and not chosen and not current_default:
         return
-    try:
-        if CONFIG_PATH.exists():
-            bak = CONFIG_PATH.with_suffix(".yaml.bak")
-            bak.write_text(CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    except Exception:
-        pass
-    cfg, _ = load_config()
-    if not isinstance(cfg, dict):
-        cfg = {}
-    if "model_ranking" not in cfg:
-        cfg["model_ranking"] = {
-            "weights": dict(DEFAULT_RANKING_WEIGHTS),
-            "provider_priority": dict(DEFAULT_PROVIDER_PRIORITY),
-            "missing_release_date": 0.0,
-        }
-    # effective default: promoted chosen, or kept incumbent, or first passing
-    effective_default_id = None
-    default_model = None
-    if promote and chosen is not None:
-        default_model = chosen
-        effective_default_id = _model_id(chosen)
-    elif promote and current_default:
-        effective_default_id = current_default
-    elif promote and passing:
-        default_model = passing[0]
-        effective_default_id = _model_id(passing[0])
+    import atomic_io
+    lock_path = str(CONFIG_PATH) + ".lock"
+    with atomic_io.file_lock(lock_path):
+        try:
+            if CONFIG_PATH.exists():
+                bak = CONFIG_PATH.with_suffix(".yaml.bak")
+                atomic_io.atomic_write_text(bak, CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        except Exception:
+            pass
+        cfg, _ = load_config()
+        if not isinstance(cfg, dict):
+            cfg = {}
+        if "model_ranking" not in cfg:
+            cfg["model_ranking"] = {
+                "weights": dict(DEFAULT_RANKING_WEIGHTS),
+                "provider_priority": dict(DEFAULT_PROVIDER_PRIORITY),
+                "missing_release_date": 0.0,
+            }
+        # effective default: promoted chosen, or kept incumbent, or first passing
+        effective_default_id = None
+        default_model = None
+        if promote and chosen is not None:
+            default_model = chosen
+            effective_default_id = _model_id(chosen)
+        elif promote and current_default:
+            effective_default_id = current_default
+        elif promote and passing:
+            default_model = passing[0]
+            effective_default_id = _model_id(passing[0])
 
-    if default_model is not None:
-        best = default_model
-        best_provider = best.get("_provider", "custom")
-        hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
-        mcfg = cfg.setdefault("model", {})
-        if not isinstance(mcfg, dict):
-            mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
-            cfg["model"] = mcfg
-        mcfg["default"] = best["id"]
-        mcfg["provider"] = hermes_provider
-        if hermes_provider == "custom" and best.get("_base_url"):
-            mcfg["base_url"] = best["_base_url"]
-        else:
-            mcfg.pop("base_url", None)
+        if default_model is not None:
+            best = default_model
+            best_provider = best.get("_provider", "custom")
+            hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom") else "custom"
+            mcfg = cfg.setdefault("model", {})
+            if not isinstance(mcfg, dict):
+                mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
+                cfg["model"] = mcfg
+            mcfg["default"] = best["id"]
+            mcfg["provider"] = hermes_provider
+            if hermes_provider == "custom" and best.get("_base_url"):
+                mcfg["base_url"] = best["_base_url"]
+            else:
+                mcfg.pop("base_url", None)
 
-    # fallback chain: all passing except the effective default
-    fb = []
-    for m in (passing or []):
-        if effective_default_id and _model_id(m) == effective_default_id:
-            continue
-        prov = m.get("_provider", "custom")
-        hp = prov if prov in ("nous", "openrouter", "custom") else "custom"
-        entry = {"provider": hp, "model": m["id"]}
-        if hp == "custom" and m.get("_base_url"):
-            entry["base_url"] = m["_base_url"]
-        fb.append(entry)
+        # fallback chain: all passing except the effective default
+        fb = []
+        for m in (passing or []):
+            if effective_default_id and _model_id(m) == effective_default_id:
+                continue
+            prov = m.get("_provider", "custom")
+            hp = prov if prov in ("nous", "openrouter", "custom") else "custom"
+            entry = {"provider": hp, "model": m["id"]}
+            if hp == "custom" and m.get("_base_url"):
+                entry["base_url"] = m["_base_url"]
+            fb.append(entry)
 
-    existing = cfg.get("fallback_providers")
-    if not isinstance(existing, list):
-        existing = []
-    existing_keys = {(str(e.get("provider")), str(e.get("model"))) for e in existing if isinstance(e, dict)}
-    new_fb = [e for e in fb if (str(e.get("provider")), str(e.get("model"))) not in existing_keys]
-    cfg["fallback_providers"] = list(existing) + new_fb
+        existing = cfg.get("fallback_providers")
+        if not isinstance(existing, list):
+            existing = []
+        existing_keys = {(str(e.get("provider")), str(e.get("model"))) for e in existing if isinstance(e, dict)}
+        new_fb = [e for e in fb if (str(e.get("provider")), str(e.get("model"))) not in existing_keys]
+        cfg["fallback_providers"] = list(existing) + new_fb
 
-    try:
-        import atomic_io
-        import io
-        buf = io.StringIO()
-        yaml_mod.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
-        print(f"Updated {CONFIG_PATH}")
-        if effective_default_id:
-            print(f"  model.default -> {effective_default_id}")
-    except Exception as e:
-        print(f"ERROR writing config: {e}", file=sys.stderr)
+        try:
+            import atomic_io
+            import io
+            buf = io.StringIO()
+            yaml_mod.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
+            print(f"Updated {CONFIG_PATH}")
+            if effective_default_id:
+                print(f"  model.default -> {effective_default_id}")
+        except Exception as e:
+            print(f"ERROR writing config: {e}", file=sys.stderr)
 
 
 def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
                      args, banned, cache, cache_lock, print_lock):
+    if slug == "ollama-local":
+        try:
+            import poll_ollama_local as _pol
+            cfg = dict(cfg)
+            cfg["probe_base_url"] = _pol.openai_base(_pol.resolve_base_url())
+        except Exception:
+            pass
     passing_list = []
     probed_list = []
 
@@ -1467,160 +1453,95 @@ def main():
         ranking = load_ranking_config()
         configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
 
-        if args.model:
-            print("Targeted retest:")
-            for slug in configured:
-                cfg = providers.PROVIDERS[slug]
-                print(f"\n=== {cfg['display']} ({slug}) ===")
-                ok, vnote = providers.validate_key(cfg)
-                if not ok:
-                    print(f"  key validation failed: {vnote}")
+    if args.model:
+        print("Targeted retest:")
+        for slug in configured:
+            cfg = providers.PROVIDERS[slug]
+            print(f"\n=== {cfg['display']} ({slug}) ===")
+            ok, vnote = providers.validate_key(cfg)
+            if not ok:
+                print(f"  key validation failed: {vnote}")
+                continue
+            key, _ = providers.get_api_key(cfg)
+            for mid in args.model:
+                if not cfg.get("probe", True):
+                    print(f"  {mid}: unverified (listing-only provider)")
                     continue
-                key, _ = providers.get_api_key(cfg)
-                for mid in args.model:
-                    if not cfg.get("probe", True):
-                        print(f"  {mid}: unverified (listing-only provider)")
-                        continue
-                    if args.refresh:
-                        cr = None
-                    else:
-                        cr = cached_result(cache, slug, mid, False)
-                    if cr is not None:
-                        cached_passed, cached_note, cached_retried = cr
-                        passed, note, retried = cached_passed, cached_note, cached_retried
-                        note = f"[cache] {note}"
-                    else:
-                        passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
-                        put_cache(cache, slug, mid, passed, note, retried)
-                    clean = bool(passed) and not bool(retried)
-                    print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
+                if args.refresh:
+                    cr = None
+                else:
+                    cr = cached_result(cache, slug, mid, False)
+                if cr is not None:
+                    cached_passed, cached_note, cached_retried = cr
+                    passed, note, retried = cached_passed, cached_note, cached_retried
+                    note = f"[cache] {note}"
+                else:
+                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
+                    put_cache(cache, slug, mid, passed, note, retried)
+                clean = bool(passed) and not bool(retried)
+                print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
+        import atomic_io
+        with atomic_io.file_lock(str(CACHE_PATH) + '.lock'):
             save_cache(cache)
-            sys.exit(0)
+        sys.exit(0)
 
-        all_passing = []
-        probed_all = []
-        summary = []
+    all_passing = []
+    probed_all = []
+    summary = []
 
-        banned_set = banned
-        cache_lock = threading.Lock()
-        print_lock = threading.Lock()
+    banned_set = banned
+    cache_lock = threading.Lock()
+    print_lock = threading.Lock()
 
-        # Parallelize across providers: one worker per provider keeps each provider's
-        # quota isolated; shared cache/banned access is guarded by locks. Results are
-        # merged on the main thread so config/cache writes stay serialized.
-        provider_results = {}
-        with ThreadPoolExecutor(max_workers=max(1, len(configured))) as ex:
-            futures = {}
-            for slug in configured:
-                cfg = providers.PROVIDERS[slug]
-                futures[ex.submit(_process_provider, slug, cfg,
-                                 ranking=ranking, reasoning_mode=reasoning_mode,
-                                 top_n=top_n, nightly=nightly, args=args,
-                                 banned=banned_set, cache=cache, cache_lock=cache_lock,
-                                 print_lock=print_lock)] = slug
-            for fut in as_completed(futures):
-                slug = futures[fut]
-                try:
-                    passing_list, probed_list, summary_entry = fut.result()
-                except Exception as e:
-                    print(f"  provider {slug} failed: {e}", file=sys.stderr)
-                    passing_list, probed_list, summary_entry = [], [], {"provider": slug, "fetched": 0, "passed": 0, "error": str(e)}
-                all_passing.extend(passing_list)
-                probed_all.extend(probed_list)
-                summary.append(summary_entry)
+    # Parallelize across providers: one worker per provider keeps each provider's
+    # quota isolated; shared cache/banned access is guarded by locks. Results are
+    # merged on the main thread so config/cache writes stay serialized.
+    provider_results = {}
+    with ThreadPoolExecutor(max_workers=max(1, len(configured))) as ex:
+        futures = {}
+        for slug in configured:
+            cfg = providers.PROVIDERS[slug]
+            futures[ex.submit(_process_provider, slug, cfg,
+                             ranking=ranking, reasoning_mode=reasoning_mode,
+                             top_n=top_n, nightly=nightly, args=args,
+                             banned=banned_set, cache=cache, cache_lock=cache_lock,
+                             print_lock=print_lock)] = slug
+        for fut in as_completed(futures):
+            slug = futures[fut]
+            try:
+                passing_list, probed_list, summary_entry = fut.result()
+            except Exception as e:
+                print(f"  provider {slug} failed: {e}", file=sys.stderr)
+                passing_list, probed_list, summary_entry = [], [], {"provider": slug, "fetched": 0, "passed": 0, "error": str(e)}
+            all_passing.extend(passing_list)
+            probed_all.extend(probed_list)
+            summary.append(summary_entry)
 
+    import atomic_io
+    with atomic_io.file_lock(str(CACHE_PATH) + '.lock'):
         save_cache(cache)
 
-        if getattr(args, "capability", None):
-            cap = args.capability.lower().strip()
-            all_passing = [m for m in all_passing if cap in (m.get("_capabilities") or set())]
+    if getattr(args, "capability", None):
+        cap = args.capability.lower().strip()
+        all_passing = [m for m in all_passing if cap in (m.get("_capabilities") or set())]
 
-        all_passing = rank_models(all_passing, ranking)
+    all_passing = rank_models(all_passing, ranking)
 
-        # --- promotion gate ---
-        margin = args.promotion_margin if args.promotion_margin is not None else PROMOTION_MARGIN
-        hyst = args.hysteresis_days if args.hysteresis_days is not None else HYSTERESIS_DAYS
-        emergency = not args.no_emergency
-        promote = not getattr(args, "no_promote", False)
-        import atomic_io
-        with atomic_io.file_lock(str(PROMOTION_HISTORY_PATH) + '.lock'):
-            history = load_promotion_history()
-            today = getattr(args, "today", None) or datetime.now(timezone.utc).date().isoformat()
-            # validate
-            try:
-                date.fromisoformat(today)
-            except ValueError:
-                print(f"ERROR: --today expects YYYY-MM-DD, got '{today}'")
-                sys.exit(2)
-
-            dry = args.dry_run
-            if not args.dry_run and not args.apply:
-                dry = False
-            if args.dry_run:
-                dry = True
-
-            if not dry:
-                update_promotion_history(history, probed_all, today)
-                removed = prune_promotion_history(history, today)
-                if removed:
-                    print(f"  Pruned {len(removed)} stale history entr(ies): {', '.join(removed)}")
-                save_promotion_history(history)
-
-            cfg0, _ = load_config()
-            current_default = ""
-            if isinstance(cfg0, dict):
-                mc = cfg0.get("model")
-                if isinstance(mc, dict):
-                    current_default = str(mc.get("default") or "")
-            chosen, reason = (None, "--no-promote: chain only") if not promote else choose_default(
-                all_passing, probed_all, history, current_default, margin, hyst, emergency=emergency)
-            if promote:
-                print(f"\nPromotion gate: {reason}")
-
-            if not dry and promote and chosen is not None:
-                mid = _model_id(chosen)
-                rec = history.setdefault(mid, _blank_promo_record(today))
-                # ensure fields
-                for k, v in _blank_promo_record(today).items():
-                    rec.setdefault(k, v)
-                if current_default != mid:
-                    rec["promotion_count"] = rec.get("promotion_count", 0) + 1
-                    rec["promoted_at"] = today
-                save_promotion_history(history)
-
-        save_last_selection(all_passing)
-
-        print("\n" + "=" * 70)
-        print(f"Passing models ({len(all_passing)}):")
-        print("=" * 70)
-        for i, m in enumerate(all_passing, 1):
-            print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
-
-        if args.json:
-            payload = {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "nightly": nightly,
-                "top_n": top_n,
-                "passing_count": len(all_passing),
-                "passing": [
-                    {
-                        "id": m.get("id"),
-                        "provider": m.get("_provider"),
-                        "context_window": m.get("context_window"),
-                        "release_date": m.get("_release_date"),
-                        "score": m.get("_score"),
-                        "score_parts": m.get("_score_parts"),
-                        "base_url": m.get("_base_url"),
-                    }
-                    for m in all_passing
-                ],
-                "summary": summary,
-            }
-            print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-        if not all_passing:
-            print("\nNo models passed probing -- config untouched.")
-            sys.exit(0)
+    # --- promotion gate ---
+    margin = args.promotion_margin if args.promotion_margin is not None else PROMOTION_MARGIN
+    hyst = args.hysteresis_days if args.hysteresis_days is not None else HYSTERESIS_DAYS
+    emergency = not args.no_emergency
+    promote = not getattr(args, "no_promote", False)
+    import atomic_io
+    with atomic_io.file_lock(str(PROMOTION_HISTORY_PATH) + '.lock'):
+        history = load_promotion_history()
+        today = getattr(args, "today", None) or datetime.now(timezone.utc).date().isoformat()
+        # validate
+        try:
+            date.fromisoformat(today)
+        except ValueError:
+            print(f"ERROR: --today expects YYYY-MM-DD, got '{today}'")
+            sys.exit(2)
 
         dry = args.dry_run
         if not args.dry_run and not args.apply:
@@ -1628,24 +1549,93 @@ def main():
         if args.dry_run:
             dry = True
 
-        if dry:
-            print("\nDRY RUN -- nothing written. Would set:")
-            if chosen is not None:
-                print(f"  model.default -> {chosen['id']}  ({reason})")
-            elif current_default:
-                print(f"  model.default -> {current_default}  (unchanged; gate kept incumbent)")
-            elif all_passing:
-                print(f"  model.default -> {all_passing[0]['id']}")
-            eff_id = _model_id(chosen) if chosen is not None else current_default
-            for m in all_passing:
-                if eff_id and _model_id(m) == eff_id:
-                    continue
-                print(f"  fallback: {m['id']} ({m['_provider']})")
-            sys.exit(0)
+        if not dry:
+            update_promotion_history(history, probed_all, today)
+            removed = prune_promotion_history(history, today)
+            if removed:
+                print(f"  Pruned {len(removed)} stale history entr(ies): {', '.join(removed)}")
+            save_promotion_history(history)
 
-        import yaml
-        write_config(all_passing, yaml, chosen=chosen, current_default=current_default, promote=promote)
-        print("Done.")
+        cfg0, _ = load_config()
+        current_default = ""
+        if isinstance(cfg0, dict):
+            mc = cfg0.get("model")
+            if isinstance(mc, dict):
+                current_default = str(mc.get("default") or "")
+        chosen, reason = (None, "--no-promote: chain only") if not promote else choose_default(
+            all_passing, probed_all, history, current_default, margin, hyst, emergency=emergency)
+        if promote:
+            print(f"\nPromotion gate: {reason}")
+
+        if not dry and promote and chosen is not None:
+            mid = _model_id(chosen)
+            rec = history.setdefault(mid, _blank_promo_record(today))
+            # ensure fields
+            for k, v in _blank_promo_record(today).items():
+                rec.setdefault(k, v)
+            if current_default != mid:
+                rec["promotion_count"] = rec.get("promotion_count", 0) + 1
+                rec["promoted_at"] = today
+            save_promotion_history(history)
+
+    save_last_selection(all_passing)
+
+    print("\n" + "=" * 70)
+    print(f"Passing models ({len(all_passing)}):")
+    print("=" * 70)
+    for i, m in enumerate(all_passing, 1):
+        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
+
+    if args.json:
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "nightly": nightly,
+            "top_n": top_n,
+            "passing_count": len(all_passing),
+            "passing": [
+                {
+                    "id": m.get("id"),
+                    "provider": m.get("_provider"),
+                    "context_window": m.get("context_window"),
+                    "release_date": m.get("_release_date"),
+                    "score": m.get("_score"),
+                    "score_parts": m.get("_score_parts"),
+                    "base_url": m.get("_base_url"),
+                }
+                for m in all_passing
+            ],
+            "summary": summary,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    if not all_passing:
+        print("\nNo models passed probing -- config untouched.")
+        sys.exit(0)
+
+    dry = args.dry_run
+    if not args.dry_run and not args.apply:
+        dry = False
+    if args.dry_run:
+        dry = True
+
+    if dry:
+        print("\nDRY RUN -- nothing written. Would set:")
+        if chosen is not None:
+            print(f"  model.default -> {chosen['id']}  ({reason})")
+        elif current_default:
+            print(f"  model.default -> {current_default}  (unchanged; gate kept incumbent)")
+        elif all_passing:
+            print(f"  model.default -> {all_passing[0]['id']}")
+        eff_id = _model_id(chosen) if chosen is not None else current_default
+        for m in all_passing:
+            if eff_id and _model_id(m) == eff_id:
+                continue
+            print(f"  fallback: {m['id']} ({m['_provider']})")
+        sys.exit(0)
+
+    import yaml
+    write_config(all_passing, yaml, chosen=chosen, current_default=current_default, promote=promote)
+    print("Done.")
 
 
 if __name__ == "__main__":

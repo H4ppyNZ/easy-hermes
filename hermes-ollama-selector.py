@@ -241,8 +241,8 @@ def main():
     global CONFIG_PATH, OLLAMA_CACHE_PATH, HERMES_HOME, HERMES_SRC, base_url_arg
     argv = sys.argv[1:]
     dry_run = "--dry-run" in argv
-    no_apply = "--no-apply" in argv
-    apply = not (dry_run or no_apply)
+    apply = "--apply" in argv
+    no_apply = "--no-apply" in argv or not apply
     set_default = "--set-default" in argv
     replace = "--replace" in argv
     fast = "--fast" in argv
@@ -340,66 +340,68 @@ def main():
         return
 
     # write config
-    yaml = load_yaml()
-    cfg, _ = load_config()
-    if not isinstance(cfg, dict):
-        cfg = {}
+    import atomic_io
+    with atomic_io.file_lock(str(CONFIG_PATH) + ".lock"):
+        yaml = load_yaml()
+        cfg, _ = load_config()
+        if not isinstance(cfg, dict):
+            cfg = {}
 
-    # fallback merge
-    existing_chain = cfg.get("fallback_providers")
-    if not isinstance(existing_chain, list):
-        existing_chain = []
+        # fallback merge
+        existing_chain = cfg.get("fallback_providers")
+        if not isinstance(existing_chain, list):
+            existing_chain = []
 
-    # If promoting a model to default, drop it from any existing chain entries.
-    if set_default:
-        chosen_name = passed[0]["name"]
-        existing_chain = [e for e in existing_chain
-                         if not (isinstance(e, dict) and str(e.get("model", "")) == chosen_name)]
+        # If promoting a model to default, drop it from any existing chain entries.
+        if set_default:
+            chosen_name = passed[0]["name"]
+            existing_chain = [e for e in existing_chain
+                             if not (isinstance(e, dict) and str(e.get("model", "")) == chosen_name)]
 
-    def entry_key(e):
-        return (str(e.get("provider", "")), str(e.get("model", "")), str(e.get("base_url", "")))
+        def entry_key(e):
+            return (str(e.get("provider", "")), str(e.get("model", "")), str(e.get("base_url", "")))
 
-    existing_keys = {entry_key(e) for e in existing_chain if isinstance(e, dict)}
-    new_entries = [e for e in entries if entry_key(e) not in existing_keys]
+        existing_keys = {entry_key(e) for e in existing_chain if isinstance(e, dict)}
+        new_entries = [e for e in entries if entry_key(e) not in existing_keys]
 
-    if replace:
-        merged = entries
-    else:
-        merged = list(existing_chain) + new_entries
+        if replace:
+            merged = entries
+        else:
+            merged = list(existing_chain) + new_entries
 
-    cfg["fallback_providers"] = merged
-    print(f"\nfallback_providers: {len(existing_chain)} existing + {len(new_entries)} new = {len(merged)} total")
+        cfg["fallback_providers"] = merged
+        print(f"\nfallback_providers: {len(existing_chain)} existing + {len(new_entries)} new = {len(merged)} total")
 
-    if set_default:
-        mcfg = cfg.setdefault("model", {})
-        if not isinstance(mcfg, dict):
-            mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
-            cfg["model"] = mcfg
-        mcfg["default"] = passed[0]["name"]
-        mcfg["provider"] = "custom"
-        mcfg["base_url"] = oa_base
-        # clear stale creds
-        for k in ("api_key", "key_env"):
-            mcfg.pop(k, None)
-        print(f"model.default -> {passed[0]['name']} (provider custom)")
+        if set_default:
+            mcfg = cfg.setdefault("model", {})
+            if not isinstance(mcfg, dict):
+                mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
+                cfg["model"] = mcfg
+            mcfg["default"] = passed[0]["name"]
+            mcfg["provider"] = "custom"
+            mcfg["base_url"] = oa_base
+            # clear stale creds
+            for k in ("api_key", "key_env"):
+                mcfg.pop(k, None)
+            print(f"model.default -> {passed[0]['name']} (provider custom)")
 
-    # write preserving comments if possible
-    HERMES_SRC_STR = str(HERMES_SRC)
-    if HERMES_SRC_STR not in sys.path:
-        sys.path.insert(0, HERMES_SRC_STR)
-    try:
-        from utils import atomic_roundtrip_yaml_save
-        atomic_roundtrip_yaml_save(CONFIG_PATH, cfg)
-        print(f"Updated {CONFIG_PATH}")
-    except Exception as e:
-        print(f"  ruamel writer unavailable ({e}); falling back to yaml.dump (comments lost)")
-        import atomic_io, io
-        buf = io.StringIO()
-        yaml.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
-        print(f"Updated {CONFIG_PATH}")
+        # write preserving comments if possible
+        HERMES_SRC_STR = str(HERMES_SRC)
+        if HERMES_SRC_STR not in sys.path:
+            sys.path.insert(0, HERMES_SRC_STR)
+        try:
+            from utils import atomic_roundtrip_yaml_save
+            atomic_roundtrip_yaml_save(CONFIG_PATH, cfg)
+            print(f"Updated {CONFIG_PATH}")
+        except Exception as e:
+            print(f"  ruamel writer unavailable ({e}); falling back to yaml.dump (comments lost)")
+            import atomic_io, io
+            buf = io.StringIO()
+            yaml.safe_dump(cfg, buf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            atomic_io.atomic_write_text(CONFIG_PATH, buf.getvalue(), encoding="utf-8")
+            print(f"Updated {CONFIG_PATH}")
 
-    print("Done. Run 'hermes fallback list' to verify.")
+        print("Done. Run 'hermes fallback list' to verify.")
 
 
 if __name__ == "__main__":

@@ -164,3 +164,20 @@ def http_get_full(url, headers=None, timeout=30, backoff=(1.0, 2.0, 4.0),
         if idx == len(delays) - 1 or not retryable:
             break
     return None, resp_headers, last_error
+
+
+def dedup_by_key(items, key="id"):
+    """Dedup a list of dicts by a key, preserving first occurrence."""
+    seen = set()
+    out = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            out.append(it)
+            continue
+        k = it.get(key)
+        if k is not None and k in seen:
+            continue
+        if k is not None:
+            seen.add(k)
+        out.append(it)
+    return out

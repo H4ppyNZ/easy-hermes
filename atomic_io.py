@@ -29,7 +29,13 @@ class _FileLock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + self.timeout
         while True:
-            fd = os.open(str(self.path), os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                fd = os.open(str(self.path), os.O_RDWR | os.O_CREAT, 0o644)
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"could not acquire lock: {self.path}")
+                time.sleep(self.poll)
+                continue
             try:
                 if msvcrt is not None:
                     msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)

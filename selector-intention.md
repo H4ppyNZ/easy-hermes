@@ -54,7 +54,7 @@ rewriting the selector — just adding one poller that follows the contract belo
    - Normalize to a **uniform schema**. No probing, no config writes.
    - Output JSON to `out/<provider>.json`.
 
-2. **Selector** (one central process, e.g. `hermes-model-selector.py` generalized
+2. **Selector** (one central process, e.g. `select-models.py` generalized
    or a new `select-models.py`) — *validation + promotion*.
    - Discovers which providers are configured (env vars / `config.yaml`).
    - Calls each relevant poller (import or subprocess).
@@ -146,15 +146,15 @@ and runs the rest.
 2. **Local Ollama default:** opt-in only via `--prefer-local`; ask in non-YOLO
    installer runs.
 3. **Ordering weights:** parked until current providers are working; revisit later.
-4. **Nous:** review `hermes-model-selector.py` vs `select-models.py` before deciding
+4. **Nous:** review `select-models.py` vs `select-models.py` before deciding
    merge vs keep-separate (see review below). Do not merge yet.
 5. **Nightly schedule:** default to the existing 3 AM nightly task (uniform); expose the
    time as a script option (e.g. `--schedule-time` / task registration param) so it
    can be changed without editing.
 
-## Review: `hermes-model-selector.py` vs `select-models.py` (do not merge yet)
+## Review: `select-models.py` vs `select-models.py` (do not merge yet)
 
-- `hermes-model-selector.py` (944 lines) is Nous-specific: reads
+- `select-models.py` (944 lines) is Nous-specific: reads
   `endpoint_model_metadata.json`, fetches release dates, probes the Nous free
   tier, applies a promotion gate with hysteresis, and writes config through
   Hermes' comment-preserving YAML writer. It is the incumbent primary-slot
@@ -186,7 +186,7 @@ and runs the rest.
    hardware); opt-in via `--prefer-local`.
 4. **Caching TTL:** current stance is "one pass = one sample, no TTL". Keep, but
    allow `--no-cache`/`--refresh`.
-5. **Nous Portal integration:** `hermes-model-selector.py` reads a local cache
+5. **Nous Portal integration:** `select-models.py` reads a local cache
    (`endpoint_model_metadata.json`), not a live poller. Should we add
    `poll_nous.py` for consistency, or keep the cache-based path? (Recommend: add
    poller later; keep cache path for now.)
@@ -198,7 +198,7 @@ and runs the rest.
 
 - Phase 1 (done): per-provider pollers exist, normalized schema, tests pass.
 - Phase 2: introduce provider registry + a thin selector wrapper that calls pollers
-  then probes. Keep `hermes-model-selector.py` and `hermes-ollama-selector.py`
+  then probes. Keep `select-models.py` and `hermes-ollama-selector.py`
   working unchanged.
 - Phase 3: installer (`hermes-setup.ps1`) calls the new selector (fast path: probe top-N
   only, to keep first-run interactive). Scheduled task runs the full probe out of
@@ -221,7 +221,7 @@ and runs the rest.
   within the TTL (default 7 days) unless `--refresh`. This avoids retesting
   stale/invalidated models and saves quota. Also debugging "why did my default
   change?".
-- **Backwards compat:** keep `hermes-model-selector.py` and
+- **Backwards compat:** keep `select-models.py` and
   `hermes-ollama-selector.py` working; new selector wraps them rather than
   replacing, so existing scheduled tasks keep functioning.
 - **Nous poller:** add `poll_nous.py` in Phase 4 so Nous matches the contract;
@@ -229,7 +229,7 @@ and runs the rest.
 
 ## Success criteria
 
-- `python select-models.py` (or `hermes-model-selector.py --all`) on a fresh
+- `python select-models.py` (or `select-models.py --all`) on a fresh
   install with only `OPENROUTER_API_KEY` set produces a working default model +
   fallback chain without manual intervention.
 - Adding provider "foo" requires only `poll_foo.py` + one registry line + tests.

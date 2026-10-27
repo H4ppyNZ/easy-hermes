@@ -4,24 +4,28 @@ import json
 import re
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
+import threading
 
 _OR_MAP = None
 
 
+_OR_MAP_LOCK = threading.Lock()
+
 def get_openrouter_map() -> dict:
     global _OR_MAP
-    if _OR_MAP is None:
-        try:
-            req = urllib.request.Request("https://openrouter.ai/api/v1/models",
-                                         headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read())
-            _OR_MAP = {m.get("id"): m.get("created") for m in data.get("data", []) if m.get("id")}
-            print(f"  OpenRouter: indexed {len(_OR_MAP)} models")
-        except Exception as e:
-            print(f"  OpenRouter list fetch failed ({e}); continuing without it")
-            _OR_MAP = {}
+    with _OR_MAP_LOCK:
+        if _OR_MAP is None:
+            try:
+                req = urllib.request.Request("https://openrouter.ai/api/v1/models",
+                                             headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    data = json.loads(resp.read())
+                _OR_MAP = {m.get("id"): m.get("created") for m in data.get("data", []) if m.get("id")}
+                print(f"  OpenRouter: indexed {len(_OR_MAP)} models")
+            except Exception as e:
+                print(f"  OpenRouter list fetch failed ({e}); continuing without it")
+                _OR_MAP = {}
     return _OR_MAP
 
 
@@ -34,7 +38,7 @@ def get_openrouter_release_date(model_id: str):
 
 def get_openrouter_web_release_date(model_id: str):
     try:
-        _mid = urllib.parse.quote(model_id.replace(":free", ""), safe="/")
+        _mid = urllib.parse.quote(model_id.replace(":free", ""), safe="")
         req = urllib.request.Request(f"https://openrouter.ai/{_mid}",
                                      headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -50,7 +54,7 @@ def get_openrouter_web_release_date(model_id: str):
 
 def get_hf_release_date(model_id: str):
     try:
-        _mid = urllib.parse.quote(model_id.replace(":free", ""), safe="/")
+        _mid = urllib.parse.quote(model_id.replace(":free", ""), safe="")
         req = urllib.request.Request(f"https://huggingface.co/api/models/{_mid}",
                                      headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -66,7 +70,7 @@ HARDCODED_DATES = {
     "meituan/longcat-2.5-preview:free": "2026-09-25",
     "upstage/solar-mini4:free": "2026-09-23",
     "meituan/longcat-2.0:free": "2026-07-20",
-    "stepfun/step-3.7-flash:free": "2025-05-28",
+    "stepfun/step-3.7-flash:free": "2026-05-28",
 }
 
 

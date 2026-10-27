@@ -6,7 +6,7 @@ restarts the gateway, then runs additional maintenance.
 .DESCRIPTION
 Runs, in order:
   1. hermes update --no-gateway-restart --yes
-  2. hermes-model-selector.py  (probe free models, apply the promotion gate, rewrite
+  2. select-models.py  (probe free models, apply the promotion gate, rewrite
      model.default + fallback_providers in config.yaml)
   3. hermes gateway restart  (so the new model/default is picked up)
   4. Any extra tasks listed in $otherTasks
@@ -38,7 +38,7 @@ Hermes home directory. Defaults to $env:LOCALAPPDATA\hermes.
 Skip step 1 (hermes update). Useful for testing the model refresh alone.
 
 .PARAMETER DryRun
-Pass --dry-run to hermes-model-selector.py: report the gate decision and write nothing.
+Pass --dry-run to select-models.py: report the gate decision and write nothing.
 
 .EXAMPLE
 .\NightlyRestartTask.ps1
@@ -63,7 +63,7 @@ $script:HadError = $false
 
 # ── Child-process encoding ─────────────────────────────────────────────────────────────
 # MUST be set before any python child. Without it the child inherits the console code page
-# (cp1252) for its stdout/stderr pipes, and hermes-model-selector.py's box-drawing characters
+# (cp1252) for its stdout/stderr pipes, and select-models.py's box-drawing characters
 # (U+2500 in its PROMOTION GATE banner) raise UnicodeEncodeError at print time.
 # Under PowerShell 5.1 that stderr traceback is additionally promoted to a
 # NativeCommandError, so the `2>&1 | Out-String` call lands in the catch block, the real
@@ -175,9 +175,9 @@ if ($DryRun) { $fallbackArgs += "--dry-run" }
 $r = Invoke-Native -Exe $pythonPath -Arguments $fallbackArgs
 Write-Log "Model chain update output: $($r.Output)"
 
-# hermes-model-selector.py exits non-zero on a real failure; surface it as an error.
+# select-models.py exits non-zero on a real failure; surface it as an error.
 if ($r.ExitCode -ne 0) {
-    Write-LogError "hermes-model-selector.py exited with code $($r.ExitCode)"
+    Write-LogError "select-models.py exited with code $($r.ExitCode)"
 }
 
 # -- Step 3: Restart gateway (AFTER config.yaml is rewritten) --

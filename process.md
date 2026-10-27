@@ -3,7 +3,7 @@
 ## Current status (Phase 2 merged)
 
 - `providers.py` + 5 pollers + `select-models.py` are on `main`.
-- `hermes-model-selector.py` and `hermes-ollama-selector.py` remain separate, as intended.
+- `select-models.py` and `hermes-ollama-selector.py` remain separate, as intended.
 - `select-models.py` has a configurable weighted ranking matrix, CLI weight flags, and `--reasoning`.
 - Tests: `python -m pytest -q` (no network).
 
@@ -54,7 +54,7 @@ Set in Windows user env (`HKEY_CURRENT_USER\Environment`):
 ## Selector ownership
 
 - `select-models.py` is the central multi-provider selector.
-- `hermes-model-selector.py` is the existing Nous-specific selector (primary-slot authority).
+- `select-models.py` is the existing Nous-specific selector (primary-slot authority).
 - `hermes-ollama-selector.py` is local Ollama (fallbacks/optional default).
 - Merge owner for `model.default`: see `selector-intention.md` "Review" section; not merged yet.
 

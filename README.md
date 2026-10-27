@@ -71,7 +71,7 @@ not rewrite `config.yaml`.
 ## Files
 
 - `hermes-setup.ps1` — main installer (install, auth, model selection, selector, primer)
-- `hermes-model-selector.py` — live free-tier probe, promotion gate, fallback chain writer
+- `select-models.py` — live free-tier probe, promotion gate, fallback chain writer
 - `hermes-ollama-selector.py` — probe local Ollama models and merge them into the fallback chain (see docs/ollama-selector.md)
 - `poll_openrouter.py` — poll OpenRouter's free models (see Pollers)
 - `poll_nvidia.py` — poll NVIDIA NIM free-tier models (best-effort)

@@ -261,6 +261,9 @@ def main(argv=None):
 
     if write_json:
         out_path = Path(out_dir) / DEFAULT_OUT_FILE
+        if ".." in out_path.parts:
+            print("ERROR: --out path must not contain '..'")
+            return 2
         try:
             out_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -268,9 +271,8 @@ def main(argv=None):
                 "count": len(models),
                 "models": models,
             }
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, ensure_ascii=False)
-                f.write("\n")
+            import atomic_io
+            atomic_io.atomic_write_text(out_path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             print(f"Wrote JSON: {out_path}")
         except OSError as e:
             print(f"ERROR writing {out_path}: {e}")

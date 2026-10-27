@@ -11,7 +11,7 @@
     -Guided  Prompts: provider, model, live selector, optional ACP extras.
               Explains every choice, then the same tail as yolo.
 
-    The model selector is a plain file -- hermes-model-selector.py, shipped
+    The model selector is a plain file -- select-models.py, shipped
     next to this script and run with the Hermes venv python. It is the single
     source of truth for the free-tier chain and for model.default; there is no
     hardcoded model list. When this script is piped through 'irm | iex' and no
@@ -31,7 +31,7 @@
 .NOTES
     Idempotent: re-running only fills gaps. ASCII-only source so it parses
     cleanly under Windows PowerShell 5.1, which is what iex uses. The model
-    selector is a separate file (hermes-model-selector.py) and may contain
+    selector is a separate file (select-models.py) and may contain
     non-ASCII -- it is run by python, not parsed by PowerShell.
 
     Usage:
@@ -116,10 +116,10 @@ function Invoke-Native {
 # HERMES_HOME wins; otherwise the Windows default.
 $HermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA 'hermes' }
 
-# Where hermes-model-selector.py is fetched from when it is not sitting next to
+# Where select-models.py is fetched from when it is not sitting next to
 # this script. Set this to your fork's raw URL once the repo is public -- pin
 # the branch, because a moving 'main' can change under people mid-install.
-$SelectorUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-model-selector.py'
+$SelectorUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/select-models.py'
 
 
 function Get-SelectorScript {
@@ -129,17 +129,17 @@ function Get-SelectorScript {
     # nothing is on disk. Always returns a path that exists and parses.
     param([string]$FallbackUrl = $SelectorUrl)
 
-    $sibling = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'hermes-model-selector.py' } else { $null }
+    $sibling = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'select-models.py' } else { $null }
     if ($sibling -and (Test-Path -LiteralPath $sibling)) {
         Write-Ok "selector: $sibling"
         return $sibling
     }
 
     if (-not $FallbackUrl -or $FallbackUrl -like '*<you>*') {
-        throw "hermes-model-selector.py not found next to this script, and `$SelectorUrl is still the placeholder. Put both files in the same folder, or set `$SelectorUrl to your repo's raw URL."
+        throw "select-models.py not found next to this script, and `$SelectorUrl is still the placeholder. Put both files in the same folder, or set `$SelectorUrl to your repo's raw URL."
     }
 
-    $dest = Join-Path $env:TEMP 'hermes-model-selector.py'
+    $dest = Join-Path $env:TEMP 'select-models.py'
     Write-Info "Fetching selector from $FallbackUrl"
     try {
         Invoke-WebRequest -Uri $FallbackUrl -OutFile $dest -UseBasicParsing
@@ -149,7 +149,7 @@ function Get-SelectorScript {
     if (-not (Test-Path -LiteralPath $dest)) { throw "Selector download wrote nothing to $dest" }
     # A 404 page or a proxy interstitial is not a script: require the one
     # function the installer depends on to be present before trusting it.
-    $probe = Select-String -LiteralPath $dest -Pattern 'def choose_default' -SimpleMatch -Quiet
+    $probe = Select-String -LiteralPath $dest -Pattern 'def write_config' -SimpleMatch -Quiet
     if (-not $probe) {
         throw "Downloaded file at $dest is not the model selector (no choose_default). Check `$SelectorUrl."
     }
@@ -350,7 +350,7 @@ if ($runSelector) {
         $errMsg += $nl + "  1. Run 'hermes doctor' to check your Hermes installation"
         $errMsg += $nl + "  2. Try reinstalling: hermes update --yes"
         $errMsg += $nl + "  3. If you have Python installed elsewhere, run the selector manually:"
-        $errMsg += $nl + "     & 'C:\path\to\python.exe' hermes-model-selector.py --hermes-home '$HermesHome'"
+        $errMsg += $nl + "     & 'C:\path\to\python.exe' select-models.py --hermes-home '$HermesHome'"
         $errMsg += $nl + "  4. Ask for help: https://github.com/H4ppyNZ/easy-hermes/issues"
         throw $errMsg
     }
@@ -537,7 +537,7 @@ if (-not $SkipDocs) {
     2 consecutive clean passes. Run it again from this installer with
     -SkipInstall, or directly:
       & "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" `
-        hermes-model-selector.py --hermes-home "$env:LOCALAPPDATA\hermes"
+        select-models.py --hermes-home "$env:LOCALAPPDATA\hermes"
   - Fully local, nothing leaves your machine: run Ollama, then 'hermes model'
     -> Custom endpoint -> http://localhost:11434/v1 -> your model. Match the
     context length to your Ollama num_ctx.

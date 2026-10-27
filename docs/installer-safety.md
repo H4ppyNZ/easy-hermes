@@ -24,8 +24,10 @@ scriptblock cast and pull `main`, so a push is live for testers at once.
 silently upgrades Hermes to the latest `main`, refreshes the dependency environment
 under the user, and stashes uncommitted changes before any reset.
 
-**The selector rewrites config wholesale.** `update_config()` REPLACES `fallback_providers`
-and `agent.reasoning_overrides` with tonight's probe results -- it does not merge. If nothing
+**The selector merges into config.** `write_config()` in `select-models.py` MERGES new
+fallback entries into the existing `fallback_providers` list (dedup by provider+model);
+`model.default` may move via the promotion gate. If nothing passes probing it returns early
+and leaves the config untouched. If nothing
 passes probing it returns early and leaves the config untouched. Writes go through ruamel's
 `atomic_roundtrip_yaml_save`, so there is no half-written-config risk; the values churn, the
 file never corrupts.

@@ -520,10 +520,11 @@ def build_output(models, source, endpoints=None):
 
 def write_output(path, output):
     p = Path(path)
+    if ".." in p.parts:
+        raise ValueError("unsafe out path")
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    import atomic_io
+    atomic_io.atomic_write_text(p, json.dumps(output, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return p
 
 

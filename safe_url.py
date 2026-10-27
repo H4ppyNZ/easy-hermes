@@ -15,7 +15,13 @@ def origin_of(url):
         return None
     if not p.scheme or not p.netloc:
         return None
-    return (p.scheme.lower(), p.netloc.lower())
+    netloc = p.netloc.lower()
+    # normalize default ports
+    if netloc.endswith(":80") and p.scheme.lower() == "http":
+        netloc = netloc[:-3]
+    if netloc.endswith(":443") and p.scheme.lower() == "https":
+        netloc = netloc[:-4]
+    return (p.scheme.lower(), netloc)
 
 
 def same_origin(url, base):
@@ -26,16 +32,20 @@ def same_origin(url, base):
         p = urllib.parse.urlsplit(url.strip())
     except Exception:
         return False
-    # Relative (no netloc): resolves against base -> allow.
+    # Relative (no netloc): resolves against base -> allow only if base is a valid http(s) origin.
     if not p.netloc:
-        # Reject scheme-only dangerous schemes like javascript:, data:, vbscript:
         if p.scheme and p.scheme.lower() not in ("http", "https", ""):
             return False
-        return True
+        b = origin_of(base)
+        return b is not None and b[0] in ("http", "https")
     # Absolute or scheme-relative: require matching origin.
-    u = (p.scheme.lower(), p.netloc.lower())
     b = origin_of(base)
     if b is None:
+        return False
+    if not p.netloc:
+        return False
+    u = origin_of(url)
+    if u is None:
         return False
     return u == b
 

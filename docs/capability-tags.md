@@ -1,6 +1,6 @@
 # Capability tagging for easy-hermes model selection
 
-Status: idea / not implemented. Draft for future work.
+Status: partially implemented. `extract_capabilities()` and `--capability` filter ship in `select-models.py`; ranking-matrix capability weight still pending.
 
 ## Goal
 

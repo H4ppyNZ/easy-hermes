@@ -100,8 +100,8 @@ PROVIDERS = {
     "ollama-local": {
         "slug": "ollama-local",
         "display": "Local Ollama",
-        "module": "hermes-ollama-selector",
-        "fetch_fn": "fetch_models",
+        "module": "poll_ollama_local",
+        "fetch_fn": "poll",
         "env_any": [],                       # daemon, no key
         "env_optional": [],
         "requires_key": False,
@@ -155,8 +155,9 @@ def validate_key(cfg, timeout=10):
     kind = cfg.get("probe_kind")
     try:
         if kind == "gemini":
-            url = base + "/models?key=" + urllib.parse.quote(key, safe="")
-            req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "easy-hermes/select-models"})
+            url = base + "/models"
+            headers = {"x-goog-api-key": key, "Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
+            req = urllib.request.Request(url, headers=headers)
         else:
             url = base + "/models"
             headers = {"Authorization": f"Bearer {key}", "Accept": "application/json", "User-Agent": "easy-hermes/select-models"}
@@ -189,8 +190,8 @@ def configured_providers(user_list=None, prefer_local=False):
     for slug, cfg in PROVIDERS.items():
         if user_list is not None and slug not in user_list:
             continue
-        if not cfg["default_enabled"] and not prefer_local:
-            # ollama-local is opt-in
+        if user_list is None and not cfg["default_enabled"] and not prefer_local:
+            # ollama-local is opt-in only when auto-selecting
             continue
         # env check
         env_any = cfg.get("env_any", [])

@@ -8,6 +8,11 @@ Nous in its candidate pool (listing only, no probing here).
 import json
 import os
 from pathlib import Path
+try:
+    import release_dates as _rd
+    HARDCODED_DATES = _rd.HARDCODED_DATES
+except Exception:
+    HARDCODED_DATES = {}
 
 LOCALAPPDATA = Path(os.environ.get("LOCALAPPDATA", ""))
 HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (LOCALAPPDATA / "hermes"))
@@ -29,17 +34,9 @@ def is_free_model(info):
         return False
     pricing = info.get("pricing", {})
     try:
-        return float(pricing.get("prompt", "1")) == 0 and float(pricing.get("completion", "1")) == 0
+        return float(pricing.get("prompt", "0")) == 0 and float(pricing.get("completion", "0")) == 0
     except (TypeError, ValueError):
         return False
-
-
-HARDCODED_DATES = {
-    "meituan/longcat-2.5-preview:free": "2026-09-25",
-    "upstage/solar-mini4:free": "2026-09-23",
-    "meituan/longcat-2.0:free": "2026-07-20",
-    "stepfun/step-3.7-flash:free": "2026-05-28",
-}
 
 
 def normalize_model(model_id, info):
@@ -89,14 +86,26 @@ def poll(**kwargs):
     return fetch_models(**kwargs)
 
 
+DEFAULT_OUT_FILE = "nous.json"
+DEFAULT_OUT_DIR = "out"
+
 if __name__ == "__main__":
     import argparse, json as _json
+    from pathlib import Path
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--out", "--output", dest="out_dir", default=DEFAULT_OUT_DIR)
     args = ap.parse_args()
     models = poll()
     if args.json:
-        print(_json.dumps({"source": str(META_CACHE_PATH), "count": len(models), "models": models}, indent=2))
+        out_path = Path(args.out_dir) / DEFAULT_OUT_FILE
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"source": str(META_CACHE_PATH), "count": len(models), "models": models}
+            out_path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            print(f"Wrote JSON: {out_path}")
+        except OSError as e:
+            print(f"ERROR writing {out_path}: {e}")
     else:
         for m in models:
             print(m["id"], m.get("context_window"))

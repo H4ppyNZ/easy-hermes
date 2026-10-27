@@ -2,7 +2,7 @@
 
 ## What this is
 
-`hermes-ollama-selector.py` is the Ollama counterpart of `hermes-model-selector.py`
+`hermes-ollama-selector.py` is the Ollama counterpart of `select-models.py`
 (which handles the Nous Portal free tier). It probes the models served by a local
 Ollama daemon and folds the ones that actually answer into Hermes' config:
 
@@ -33,7 +33,7 @@ Probe results are cached at `<hermes-home>/cache/ollama_model_cache.json`.
   existing `fallback_providers` chain (Nous entries are preserved; dedup by
   provider+model+base_url).
 - It does not touch `model.default` unless `--set-default` is given, so it does
-  not fight `hermes-model-selector.py` for the primary slot.
+  not fight `select-models.py` for the primary slot.
 - Later: merge into `hermes-setup.ps1` step 5 ("model selector"). Natural
   integration points:
   - After the Nous selector runs, invoke this script with `--apply-fallbacks`

@@ -43,7 +43,7 @@ if _env_base:
     except Exception:
         _host = ""
         _scheme = ""
-    if _host and _host in ("generativelanguage.googleapis.com",) and _scheme in ("", "http", "https"):
+    if _host and _host in ("generativelanguage.googleapis.com",) and _scheme == "https" and _parsed.username is None and _parsed.password is None:
         _b = _env_base.strip().rstrip("/")
         if not _b.endswith("/models"):
             _b = _b + "/models"
@@ -494,6 +494,15 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
 
     start_url = None
     if base_url:
+        try:
+            import urllib.parse as _up
+            _pu = _up.urlsplit(str(base_url))
+            if (_pu.scheme.lower() != "https" or _pu.hostname != "generativelanguage.googleapis.com"
+                    or _pu.username or _pu.password):
+                base_url = None
+        except Exception:
+            base_url = None
+    if base_url:
         u = str(base_url).strip().rstrip("/")
         if not u.endswith("/models"):
             u = u + "/models"
@@ -583,6 +592,17 @@ def fetch_models(api_key=None, base_url=None, endpoint=None, endpoints=None, url
         else:
             url = None
 
+    # dedup by name across pages
+    _seen = set()
+    _deduped = []
+    for m in all_raw:
+        mid = m.get("name") if isinstance(m, dict) else None
+        if mid is not None and mid in _seen:
+            continue
+        if mid is not None:
+            _seen.add(mid)
+        _deduped.append(m)
+    all_raw = _deduped
     if free_only:
         filtered = filter_models(all_raw)
     else:
@@ -642,6 +662,8 @@ def build_output(models, source, endpoints=None):
 
 def write_output(path, output):
     p = Path(path)
+    if ".." in p.parts:
+        raise ValueError("unsafe out path")
     if p.exists() and p.is_dir():
         p = p / "gemini.json"
     elif (not p.suffix) and (not str(path).endswith((".json", ".txt", ".md"))):
@@ -651,14 +673,11 @@ def write_output(path, output):
         except Exception:
             pass
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    import atomic_io
+    atomic_io.atomic_write_text(p, json.dumps(output, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         alt = p.parent / "poll_gemini.json"
-        with open(alt, "w", encoding="utf-8") as f:
-            json.dump(output, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+        atomic_io.atomic_write_text(alt, json.dumps(output, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except Exception:
         pass
     return p
