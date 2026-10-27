@@ -209,7 +209,7 @@ foreach ($task in $otherTasks) {
     $i++
     # Basic path validation for script-based tasks.
     $target = $null
-    try { $target = ($task.Command.ToString() -replace '.*&\s*', '').Trim().Trim("'\"") } catch { }
+    try { $target = ($task.Command.ToString() -replace '.*&\s*', '').Trim().Trim([char[]]@('"', "'")) } catch { }
     if ($target -and -not (Test-Path -LiteralPath $target)) {
         Write-Log "Task $i ($($task.Name)): SKIPPED (script not found: $target)"
         continue

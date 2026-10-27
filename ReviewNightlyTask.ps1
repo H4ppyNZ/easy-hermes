@@ -25,14 +25,23 @@ param(
 $ErrorActionPreference = "Stop"
 $eventSource = 'ReviewNightlyTask'
 
-if (-not [System.Diagnostics.EventLog]::SourceExists($eventSource)) {
-    [System.Diagnostics.EventLog]::CreateEventSource($eventSource, "Application")
+try {
+    if (-not [System.Diagnostics.EventLog]::SourceExists($eventSource)) {
+        [System.Diagnostics.EventLog]::CreateEventSource($eventSource, "Application")
+    }
+} catch {
+    # SourceExists can throw on inaccessible logs; continue best-effort.
 }
 
 function Write-Log {
     param([string]$Message, [string]$Type = "Information", [int]$EventId = 1000)
+    Write-Host $Message
     $msg = if ($Message.Length -gt 32000) { $Message.Substring(0, 32000) + "..." } else { $Message }
-    Write-EventLog -LogName Application -Source $eventSource -EntryType $Type -EventId $EventId -Message $msg
+    try {
+        Write-EventLog -LogName Application -Source $eventSource -EntryType $Type -EventId $EventId -Message $msg -ErrorAction Stop
+    } catch {
+        # Event source may be unavailable; console output already captured above.
+    }
 }
 
 $failures = @()
