@@ -374,6 +374,7 @@ DEFAULT_RANKING_WEIGHTS = {
     "context_window": 0.30,
     "provider_priority": 0.30,
     "reasoning": 0.0,
+    "boost": 0.0,
 }
 DEFAULT_PROVIDER_PRIORITY = {
     "openrouter": 1.0,
@@ -385,6 +386,7 @@ DEFAULT_PROVIDER_PRIORITY = {
     "nous": 1.0,
 }
 BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
+BOOSTED_PATH = HERMES_HOME / "cache" / "boosted_models.json"
 PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 PROMOTION_MARGIN = 2
 HYSTERESIS_DAYS = 7
@@ -413,6 +415,28 @@ def save_banned(banned):
             atomic_io.atomic_write_json(BANNED_PATH, sorted(banned), indent=2)
     except Exception as e:
         print(f"  (banned list write failed: {e})", file=sys.stderr)
+
+
+def load_boosted():
+    try:
+        if BOOSTED_PATH.exists():
+            data = json.loads(BOOSTED_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return set(str(x) for x in data)
+            if isinstance(data, dict):
+                return set(str(x) for x in data.get("boosted", []))
+    except Exception:
+        pass
+    return set()
+
+
+def save_boosted(boosted):
+    try:
+        import atomic_io
+        with atomic_io.file_lock(str(BOOSTED_PATH) + ".lock"):
+            atomic_io.atomic_write_json(BOOSTED_PATH, sorted(boosted), indent=2)
+    except Exception as e:
+        print(f"  (boosted list write failed: {e})", file=sys.stderr)
 
 
 def is_banned(mid, banned):
@@ -789,6 +813,10 @@ def rank_models(models, ranking=None):
     weights = ranking["weights"]
     pp_map = ranking["provider_priority"]
     missing = ranking["missing_release_date"]
+    try:
+        boosted = load_boosted()
+    except Exception:
+        boosted = set()
 
     # context min/max
     cws = [m.get("context_window") for m in models if isinstance(m.get("context_window"), (int, float))]
@@ -827,10 +855,15 @@ def rank_models(models, ranking=None):
             pp_norm = 1.0
         pp_norm = max(0.0, min(1.0, pp_norm))
 
+        is_boosted = str(m.get("id")) in boosted
+        boost_norm = 1.0 if is_boosted else 0.0
         score = (weights.get("release_date", 0.0) * rel_norm
                  + weights.get("context_window", 0.0) * cw_norm
                  + weights.get("provider_priority", 0.0) * pp_norm
-                 + weights.get("reasoning", 0.0) * m.get("_reasoning", 0.0))
+                 + weights.get("reasoning", 0.0) * m.get("_reasoning", 0.0)
+                 + weights.get("boost", 1.0) * boost_norm)
+        if is_boosted:
+            score += 1.0
         m["_score"] = round(score, 4)
         m["_score_parts"] = {
             "release": round(rel_norm, 3),
@@ -1296,6 +1329,14 @@ def main():
                     help="Unban a model id")
     ap.add_argument("--list-banned", action="store_true",
                     help="Print banned model ids and exit")
+    ap.add_argument("--boost", action="append", metavar="MODEL_ID",
+                    help="Boost a model id (sorts to top)")
+    ap.add_argument("--unboost", action="append", metavar="MODEL_ID",
+                    help="Remove a model from the boosted list")
+    ap.add_argument("--list-boosted", action="store_true",
+                    help="Print boosted model ids and exit")
+    ap.add_argument("--set-default", metavar="MODEL_ID",
+                    help="Force model.default to this id (bypasses promotion gate)")
     ap.add_argument("--promotion-margin", type=int, metavar="N",
                     help=f"Consecutive clean passes required to be eligible (default {PROMOTION_MARGIN})")
     ap.add_argument("--hysteresis-days", type=int, metavar="D",
@@ -1317,11 +1358,12 @@ def main():
     if getattr(args, "hermes_home", None):
         import os as _os
         _os.environ["HERMES_HOME"] = args.hermes_home
-        global HERMES_HOME, CONFIG_PATH, CACHE_PATH, BANNED_PATH, PROMOTION_HISTORY_PATH
+        global HERMES_HOME, CONFIG_PATH, CACHE_PATH, BANNED_PATH, BOOSTED_PATH, PROMOTION_HISTORY_PATH
         HERMES_HOME = Path(args.hermes_home)
         CONFIG_PATH = HERMES_HOME / "config.yaml"
         CACHE_PATH = HERMES_HOME / "cache" / "free_model_probe_cache.json"
         BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
+        BOOSTED_PATH = HERMES_HOME / "cache" / "boosted_models.json"
         PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 
     reasoning_mode = "high" if getattr(args, "reasoning", False) else None
@@ -1346,6 +1388,28 @@ def main():
         save_banned(banned)
         print(f"Unbanned: {', '.join(args.unban)}")
     if args.ban or args.unban:
+        pass
+
+    # --- boosted list management ---
+    boosted = load_boosted()
+    if args.list_boosted:
+        for m in sorted(boosted):
+            print(m)
+        if not boosted:
+            print("(none)")
+        sys.exit(0)
+    if args.boost:
+        for m in args.boost:
+            boosted.add(m)
+        save_boosted(boosted)
+        print(f"Boosted: {', '.join(args.boost)}")
+    if args.unboost:
+        for m in args.unboost:
+            boosted.discard(m)
+        save_boosted(boosted)
+        print(f"Unboosted: {', '.join(args.unboost)}")
+    if args.boost or args.unboost:
+        sys.exit(0)
         if not (args.show_ranking or args.set_weight or args.set_priority
                 or args.set_missing_release is not None or args.model):
             if not (args.dry_run or args.apply or args.providers or args.full or args.nightly
@@ -1565,7 +1629,19 @@ def main():
                 current_default = str(mc.get("default") or "")
         chosen, reason = (None, "--no-promote: chain only") if not promote else choose_default(
             all_passing, probed_all, history, current_default, margin, hyst, emergency=emergency)
-        if promote:
+        if getattr(args, "set_default", None):
+            forced = None
+            for m in all_passing:
+                if str(m.get("id")) == str(args.set_default):
+                    forced = m
+                    break
+            if forced is not None:
+                chosen = forced
+                reason = f"forced by --set-default: {args.set_default}"
+                print(f"\nPromotion gate: {reason}")
+            else:
+                print(f"\n--set-default: {args.set_default} not in passing pool; gate unchanged")
+        elif promote:
             print(f"\nPromotion gate: {reason}")
 
         if not dry and promote and chosen is not None:
