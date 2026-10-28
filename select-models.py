@@ -78,6 +78,10 @@ def build_ranking_from_mr(mr):
     weights = mr.get("weights")
     if not isinstance(weights, dict):
         weights = dict(DEFAULT_RANKING_WEIGHTS)
+    else:
+        merged_w = dict(DEFAULT_RANKING_WEIGHTS)
+        merged_w.update(weights)
+        weights = merged_w
     try:
         total = sum(float(v) for v in weights.values())
     except (TypeError, ValueError):
@@ -374,6 +378,7 @@ DEFAULT_RANKING_WEIGHTS = {
     "context_window": 0.30,
     "provider_priority": 0.30,
     "reasoning": 0.0,
+    "response_time": 0.0,
     "boost": 0.0,
 }
 DEFAULT_PROVIDER_PRIORITY = {
@@ -389,6 +394,7 @@ BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
 BOOSTED_PATH = HERMES_HOME / "cache" / "boosted_models.json"
 PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 PROMOTION_MARGIN = 2
+PROVIDER_COOLDOWN_SECONDS = float(os.environ.get("EASY_HERMES_PROVIDER_COOLDOWN", "5"))
 HYSTERESIS_DAYS = 7
 HISTORY_PRUNE_DAYS = 30
 
@@ -660,6 +666,18 @@ def approximate_context(m):
     return None
 
 
+def _extract_elapsed_ms(note):
+    if not note:
+        return None
+    matches = re.findall(r"(\d+)\s*ms", str(note))
+    if not matches:
+        return None
+    try:
+        return int(matches[-1])
+    except (TypeError, ValueError):
+        return None
+
+
 def reasoning_score_from_note(note):
     if not note:
         return 0.0
@@ -694,7 +712,7 @@ def get_reasoning_efforts(model_id, base_url):
     return None
 
 
-def probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=None):
+def probe_reasoning_levels(model_id, cfg, api_key, timeout=None):
     base = cfg.get("probe_base_url") or ""
     t = timeout if (timeout is not None and timeout > 0) else (cfg.get("probe_timeout") or 15)
     if not t or t <= 0:
@@ -754,6 +772,11 @@ def load_ranking_config():
     weights = mr.get("weights")
     if not isinstance(weights, dict):
         weights = dict(DEFAULT_RANKING_WEIGHTS)
+    else:
+        # fill in any newly added weight keys with defaults
+        merged_w = dict(DEFAULT_RANKING_WEIGHTS)
+        merged_w.update(weights)
+        weights = merged_w
     # normalize to sum 1
     try:
         total = sum(float(v) for v in weights.values())
@@ -827,6 +850,11 @@ def rank_models(models, ranking=None):
     ts_valid = [t for t in ts_list if t is not None]
     ts_min = min(ts_valid) if ts_valid else 0
     ts_max = max(ts_valid) if ts_valid else 0
+    # response time min/max (lower is better)
+    rt_list = [m.get("_response_time_ms") for m in models]
+    rt_valid = [r for r in rt_list if isinstance(r, (int, float))]
+    rt_min = min(rt_valid) if rt_valid else 0
+    rt_max = max(rt_valid) if rt_valid else 0
 
     for idx, m in enumerate(models):
         # context norm
@@ -857,10 +885,20 @@ def rank_models(models, ranking=None):
 
         is_boosted = str(m.get("id")) in boosted
         boost_norm = 1.0 if is_boosted else 0.0
+        # response time norm (lower is better)
+        rt = rt_list[idx]
+        if isinstance(rt, (int, float)) and rt_max > rt_min:
+            rt_norm = (rt_max - rt) / (rt_max - rt_min)
+        elif isinstance(rt, (int, float)) and rt_valid:
+            rt_norm = 1.0
+        else:
+            rt_norm = 0.0
+        reasoning_norm = float(m.get("_reasoning", 0.0) or 0.0)
         score = (weights.get("release_date", 0.0) * rel_norm
                  + weights.get("context_window", 0.0) * cw_norm
                  + weights.get("provider_priority", 0.0) * pp_norm
-                 + weights.get("reasoning", 0.0) * m.get("_reasoning", 0.0)
+                 + weights.get("reasoning", 0.0) * reasoning_norm
+                 + weights.get("response_time", 0.0) * rt_norm
                  + weights.get("boost", 1.0) * boost_norm)
         if is_boosted:
             score += 1.0
@@ -869,6 +907,8 @@ def rank_models(models, ranking=None):
             "release": round(rel_norm, 3),
             "context": round(cw_norm, 3),
             "provider": round(pp_norm, 3),
+            "reasoning": round(reasoning_norm, 3),
+            "response_time": round(rt_norm, 3),
         }
 
     return sorted(models, key=lambda m: (-(m.get("_score") or 0), -(m.get("context_window") or 0), str(m.get("id"))))
@@ -934,7 +974,7 @@ def _openai_probe(model_id, base_url, api_key, timeout=15, extra_headers=None, r
     url = url + "/chat/completions"
     payload = {
         "model": model_id,
-        "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
+        "messages": [{"role": "user", "content": "If I have 3 apples and eat 1, how many are left? Answer with just the number."}],
         "max_tokens": max_tokens,
     }
     if reasoning is not None:
@@ -952,18 +992,20 @@ def _openai_probe(model_id, base_url, api_key, timeout=15, extra_headers=None, r
             time.sleep(delay)
         req = urllib.request.Request(url, data=__import__("json").dumps(payload).encode(), headers=headers)
         try:
+            start = time.perf_counter()
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read())
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
             choice = (data.get("choices") or [{}])[0]
             msg = choice.get("message", {}) if isinstance(choice, dict) else {}
             content = (msg.get("content") or "").strip()
             reasoning_text = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
             if content:
-                return True, f"ok: {content[:40]} (reasoning={len(reasoning_text)}ch)", retried
+                return True, f"ok: {content[:40]} (reasoning={len(reasoning_text)}ch, {elapsed_ms}ms)", retried
             fr = choice.get("finish_reason") if isinstance(choice, dict) else None
             if reasoning_text and fr == "length":
-                return False, f"budget exhausted thinking ({len(reasoning_text)}ch)", retried
-            note = f"empty content (finish_reason={fr})" if fr else "empty content"
+                return False, f"budget exhausted thinking ({len(reasoning_text)}ch, {elapsed_ms}ms)", retried
+            note = f"empty content (finish_reason={fr}, {elapsed_ms}ms)" if fr else f"empty content ({elapsed_ms}ms)"
             return False, note, retried
         except urllib.error.HTTPError as e:
             code = e.code
@@ -994,7 +1036,7 @@ def _gemini_probe(model_id, api_key, base_url, timeout=15):
     from urllib.parse import quote
     mid_enc = "/".join(quote(seg, safe="") for seg in mid.split("/"))
     url = f"{base_url.rstrip('/')}/{mid_enc}:generateContent"
-    payload = {"contents": [{"parts": [{"text": "Say 'ok' and nothing else."}]}],
+    payload = {"contents": [{"parts": [{"text": "If I have 3 apples and eat 1, how many are left? Answer with just the number."}]}],
                "generationConfig": {"maxOutputTokens": 256}}
     retried = False
     last = "no attempt"
@@ -1007,19 +1049,21 @@ def _gemini_probe(model_id, api_key, base_url, timeout=15):
                                              "x-goog-api-key": str(api_key),
                                              "User-Agent": "easy-hermes/select-models"})
         try:
+            start = time.perf_counter()
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read())
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
             cands = data.get("candidates") or []
             if cands:
                 parts = (cands[0].get("content", {}) or {}).get("parts", [])
                 text = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
                 if text:
-                    return True, f"ok: {text[:40]}", retried
+                    return True, f"ok: {text[:40]} ({elapsed_ms}ms)", retried
                 fr = cands[0].get("finishReason")
                 if fr:
-                    last = f"empty content (finishReason={fr})"
+                    last = f"empty content (finishReason={fr}, {elapsed_ms}ms)"
                 else:
-                    last = "empty content"
+                    last = f"empty content ({elapsed_ms}ms)"
                 return False, last, retried
             pf = data.get("promptFeedback") or {}
             br = pf.get("blockReason")
@@ -1054,7 +1098,7 @@ def _ollama_local_probe(model_id, base_url, timeout=60):
         return False, f"{type(e).__name__}: {e}", False
 
 
-def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
+def probe(slug, cfg, model_id, api_key, timeout=None, reasoning=None):
     kind = cfg.get("probe_kind")
     if kind == "openai":
         base = cfg.get("probe_base_url") or ""
@@ -1062,7 +1106,7 @@ def probe(slug, cfg, model_id, api_key, nightly, timeout=None, reasoning=None):
         if not t or t <= 0:
             t = 15
         if reasoning:
-            return probe_reasoning_levels(model_id, cfg, api_key, nightly, timeout=t)
+            return probe_reasoning_levels(model_id, cfg, api_key, timeout=t)
         return _openai_probe(model_id, base, api_key, timeout=t, extra_headers=cfg.get("probe_headers"))
     if kind == "gemini":
         base = cfg.get("probe_base_url") or "https://generativelanguage.googleapis.com/v1beta"
@@ -1127,7 +1171,7 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
         if default_model is not None:
             best = default_model
             best_provider = best.get("_provider", "custom")
-            hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom", "ollama-cloud") else "custom"
+            hermes_provider = best_provider if best_provider in ("nous", "openrouter", "custom", "ollama-cloud", "nvidia", "gemini", "novita") else "custom"
             mcfg = cfg.setdefault("model", {})
             if not isinstance(mcfg, dict):
                 mcfg = {"default": mcfg} if isinstance(mcfg, str) else {}
@@ -1145,7 +1189,7 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
             if effective_default_id and _model_id(m) == effective_default_id:
                 continue
             prov = m.get("_provider", "custom")
-            hp = prov if prov in ("nous", "openrouter", "custom", "ollama-cloud") else "custom"
+            hp = prov if prov in ("nous", "openrouter", "custom", "ollama-cloud", "nvidia", "gemini", "novita") else "custom"
             entry = {"provider": hp, "model": m["id"]}
             if hp == "custom" and m.get("_base_url"):
                 entry["base_url"] = m["_base_url"]
@@ -1171,8 +1215,7 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
             print(f"ERROR writing config: {e}", file=sys.stderr)
 
 
-def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
-                     args, banned, cache, cache_lock, print_lock):
+def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned, cache, cache_lock, print_lock):
     if slug == "ollama-local":
         try:
             import poll_ollama_local as _pol
@@ -1180,23 +1223,42 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
             cfg["probe_base_url"] = _pol.openai_base(_pol.resolve_base_url())
         except Exception:
             pass
+    # Cap OpenRouter probing to avoid burning free-tier daily quota unless overridden.
+    if slug == "openrouter":
+        cap = getattr(args, "openrouter_top", None)
+        if cap is None:
+            cap = 3
+        if cap and cap > 0 and (top_n is None or top_n > cap):
+            top_n = cap
     passing_list = []
     probed_list = []
+    _buf = []
 
     def _print(*a, **k):
+        sep = k.get("sep", " ")
+        end = k.get("end", "\n")
+        _buf.append(sep.join(str(x) for x in a) + end)
+
+    def _flush():
+        if not _buf:
+            return
         with print_lock:
-            print(*a, **k)
+            sys.stdout.write("".join(_buf))
+            sys.stdout.flush()
+        _buf.clear()
 
     _print(f"\n=== {cfg['display']} ({slug}) ===")
     ok, vnote = providers.validate_key(cfg)
     if not ok:
         _print(f"  key validation failed: {vnote}")
+        _flush()
         return passing_list, probed_list, {"provider": slug, "fetched": 0, "passed": 0, "error": vnote}
     if vnote and vnote != "no key required":
         _print(f"  {vnote}")
     models, err = fetch_provider(slug, cfg)
     if err:
         _print(f"  fetch error: {err}")
+        _flush()
         return passing_list, probed_list, {"provider": slug, "fetched": 0, "passed": 0, "error": err}
 
     models = [m for m in (models or []) if not is_banned(m.get("id") if isinstance(m, dict) else m, banned)]
@@ -1224,10 +1286,12 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
             m["_probe_ok"] = None
             m["_probe_note"] = "unverified (listing only, no probe)"
             m["_reasoning"] = 0.0
+            m["_response_time_ms"] = None
             passing_list.append(m)
             passed_here += 1
             probed_list.append({"model": m["id"], "test_passed": True, "clean_pass": False,
                                "fail_note": "listing-only (no probe)", "release_date": m.get("_release_date")})
+        _flush()
         return passing_list, probed_list, {"provider": slug, "fetched": len(models), "probed": 0,
                                            "passed": passed_here}
 
@@ -1266,6 +1330,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
             m["_probe_ok"] = None
             m["_probe_note"] = "unverified (no API key to probe)"
             m["_reasoning"] = 0.0
+            m["_response_time_ms"] = None
             passing_list.append(m)
             passed_here += 1
             _print(f"    UNVERIFIED {mid}  (no API key to probe)")
@@ -1279,7 +1344,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
             ok2, note, retried = cached_passed, cached_note, cached_retried
             note = f"[cache] {note}"
         else:
-            ok2, note, retried = probe(slug, cfg, mid, key, nightly,
+            ok2, note, retried = probe(slug, cfg, mid, key,
                                        timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
             with cache_lock:
                 put_cache(cache, slug, mid, ok2, note, retried)
@@ -1289,6 +1354,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
         m["_probe_ok"] = clean
         m["_probe_note"] = note
         m["_reasoning"] = reasoning_score_from_note(note)
+        m["_response_time_ms"] = _extract_elapsed_ms(note)
         if clean:
             passing_list.append(m)
             passed_here += 1
@@ -1296,6 +1362,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
         probed_list.append({"model": mid, "test_passed": bool(ok2), "clean_pass": clean,
                            "fail_note": None if ok2 else note, "release_date": m.get("_release_date")})
 
+    _flush()
     return passing_list, probed_list, {"provider": slug, "fetched": len(models), "probed": len(cands),
                                        "passed": passed_here}
 
@@ -1303,7 +1370,6 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, nightly,
 def main():
     ap = argparse.ArgumentParser(description="Central free-model selector (Phase 2)")
     ap.add_argument("--dry-run", action="store_true", help="Preview only, write nothing")
-    ap.add_argument("--nightly", action="store_true", help="Probe top-12 (out-of-hours)")
     ap.add_argument("--refresh", action="store_true", help="Ignore probe cache")
     ap.add_argument("--prefer-local", action="store_true", help="Include local Ollama")
     ap.add_argument("--providers", help="Comma-separated provider slugs")
@@ -1349,6 +1415,10 @@ def main():
                     help="Only refresh the fallback chain; leave model.default unchanged")
     ap.add_argument("--hermes-home", metavar="PATH",
                     help="Hermes home directory (overrides HERMES_HOME env / default)")
+    ap.add_argument("--provider-cooldown", type=float, metavar="SEC",
+                    help=f"Seconds to wait between starting providers (default {PROVIDER_COOLDOWN_SECONDS})")
+    ap.add_argument("--openrouter-top", type=int, metavar="N",
+                    help="Cap OpenRouter probes to N (default 3; 0 = no cap)")
     ap.add_argument("--capability", metavar="CAP",
                     help="Keep only models whose _capabilities contains CAP")
     ap.add_argument("--today", metavar="YYYY-MM-DD",
@@ -1412,7 +1482,7 @@ def main():
         sys.exit(0)
         if not (args.show_ranking or args.set_weight or args.set_priority
                 or args.set_missing_release is not None or args.model):
-            if not (args.dry_run or args.apply or args.providers or args.full or args.nightly
+            if not (args.dry_run or args.apply or args.providers or args.full
                     or args.top or args.json or args.show_history):
                 sys.exit(0)
     if args.show_history:
@@ -1429,7 +1499,12 @@ def main():
         if not isinstance(mr, dict):
             mr = {}
             cfg["model_ranking"] = mr
-        mr.setdefault("weights", dict(DEFAULT_RANKING_WEIGHTS))
+        if not isinstance(mr.get("weights"), dict):
+            mr["weights"] = dict(DEFAULT_RANKING_WEIGHTS)
+        else:
+            merged_w = dict(DEFAULT_RANKING_WEIGHTS)
+            merged_w.update(mr["weights"])
+            mr["weights"] = merged_w
         mr.setdefault("provider_priority", dict(DEFAULT_PROVIDER_PRIORITY))
         mr.setdefault("missing_release_date", 0.0)
 
@@ -1502,11 +1577,11 @@ def main():
         sys.exit(0)
 
     dry_run = args.dry_run
-    nightly = args.nightly
+
     if args.full:
         top_n = None
     else:
-        top_n = args.top if args.top else (12 if nightly else 3)
+        top_n = args.top if args.top else 3
 
     user_list = None
     if args.providers:
@@ -1541,7 +1616,7 @@ def main():
                     passed, note, retried = cached_passed, cached_note, cached_retried
                     note = f"[cache] {note}"
                 else:
-                    passed, note, retried = probe(slug, cfg, mid, key, nightly, timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
+                    passed, note, retried = probe(slug, cfg, mid, key, timeout=cfg.get("probe_timeout"), reasoning=reasoning_mode)
                     put_cache(cache, slug, mid, passed, note, retried)
                 clean = bool(passed) and not bool(retried)
                 print(f"  {mid}: {'PASS' if clean else 'FAIL'} ({note})")
@@ -1562,13 +1637,20 @@ def main():
     # quota isolated; shared cache/banned access is guarded by locks. Results are
     # merged on the main thread so config/cache writes stay serialized.
     provider_results = {}
+    done = 0
+    total_providers = len(configured)
     with ThreadPoolExecutor(max_workers=max(1, len(configured))) as ex:
         futures = {}
-        for slug in configured:
+        cooldown = getattr(args, "provider_cooldown", None)
+        if cooldown is None:
+            cooldown = PROVIDER_COOLDOWN_SECONDS
+        for i, slug in enumerate(configured):
+            if i > 0 and cooldown and cooldown > 0:
+                time.sleep(cooldown)
             cfg = providers.PROVIDERS[slug]
             futures[ex.submit(_process_provider, slug, cfg,
                              ranking=ranking, reasoning_mode=reasoning_mode,
-                             top_n=top_n, nightly=nightly, args=args,
+                             top_n=top_n, args=args,
                              banned=banned_set, cache=cache, cache_lock=cache_lock,
                              print_lock=print_lock)] = slug
         for fut in as_completed(futures):
@@ -1581,6 +1663,8 @@ def main():
             all_passing.extend(passing_list)
             probed_all.extend(probed_list)
             summary.append(summary_entry)
+            done += 1
+            print(f"  [{done}/{total_providers} providers complete]")
 
     import atomic_io
     with atomic_io.file_lock(str(CACHE_PATH) + '.lock'):
@@ -1661,12 +1745,13 @@ def main():
     print(f"Passing models ({len(all_passing)}):")
     print("=" * 70)
     for i, m in enumerate(all_passing, 1):
-        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}")
+        rt = m.get("_response_time_ms")
+        rt_s = f"  resp={rt}ms" if isinstance(rt, int) else ""
+        print(f"  {i}. [{m['_provider']}] {m['id']}  ctx={m.get('context_window')}  score={m.get('_score')}  release={m.get('_release_date')}{rt_s}")
 
     if args.json:
         payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "nightly": nightly,
             "top_n": top_n,
             "passing_count": len(all_passing),
             "passing": [
@@ -1677,6 +1762,7 @@ def main():
                     "release_date": m.get("_release_date"),
                     "score": m.get("_score"),
                     "score_parts": m.get("_score_parts"),
+                    "response_time_ms": m.get("_response_time_ms"),
                     "base_url": m.get("_base_url"),
                 }
                 for m in all_passing

@@ -22,7 +22,6 @@ python select-models.py                # apply (writes config.yaml)
 python select-models.py --dry-run      # preview only
 python select-models.py --dry-run --json
 python select-models.py --dry-run --refresh   # ignore cache, re-probe
-python select-models.py --dry-run --nightly  # probe top-12
 python select-models.py --dry-run --top 20    # probe top-20
 python select-models.py --dry-run --full     # probe every candidate
 python select-models.py --providers gemini,novita --dry-run
@@ -35,7 +34,6 @@ python select-models.py --prefer-local --dry-run
 |------|---------|
 | `--dry-run` | Preview only; writes nothing |
 | `--refresh` | Ignore the probe cache |
-| `--nightly` | Probe top-12 (out-of-hours budget) |
 | `--top N` | Override probe budget |
 | `--full` | Probe every candidate |
 | `--reasoning` | Probe with reasoning_effort=high and report reasoning chars |
@@ -95,6 +93,8 @@ model_ranking:
     context_window: 0.30
     provider_priority: 0.30
     reasoning: 0.0
+    response_time: 0.0
+    boost: 0.0
   provider_priority:
     openrouter: 1.0
     gemini: 1.0
@@ -124,9 +124,9 @@ runtime. Three categories exist:
 
 | Category | Provider value | base_url written? | Example |
 |----------|---------------|-------------------|---------|
-| Built-in Hermes provider | `nous`, `openrouter`, `ollama-cloud` | No (uses provider's own endpoint) | Ollama Cloud models |
-| Custom OpenAI-compatible endpoint | `custom` | Yes (`base_url`) | NVIDIA, Gemini, Novita, Ollama-local |
-| Everything else | `custom` (fallback) | Yes (`base_url`) | Any new provider not yet registered |
+| Built-in Hermes provider | `nous`, `openrouter`, `ollama-cloud`, `nvidia`, `novita` | No (uses provider's own endpoint) | Ollama Cloud, NVIDIA, Novita models |
+| Named custom provider (via `providers:`) | `gemini` | No (uses `providers:` entry) | Gemini models |
+| Custom OpenAI-compatible endpoint | `custom` | Yes (`base_url`) | Any unregistered provider |
 
 ### Adding a new provider as a named descriptor
 
