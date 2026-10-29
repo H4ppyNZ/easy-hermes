@@ -37,6 +37,7 @@ python select-models.py --prefer-local --dry-run
 | `--top N` | Override probe budget |
 | `--full` | Probe every candidate |
 | `--reasoning` | Probe with reasoning_effort=high and report reasoning chars |
+| `--show-response-times` | Print recorded probe response times (ms) and exit |
 | `--providers` | Comma-separated provider slugs |
 | `--model` | Retest a specific model id on selected providers |
 | `--prefer-local` | Include local Ollama |

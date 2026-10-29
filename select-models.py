@@ -221,6 +221,64 @@ def show_promotion_history(history):
     print(f"{'=' * 104}\n")
 
 
+def show_response_times():
+    """Print recorded probe response times (ms) from the probe cache + last selection."""
+    rows = []
+    seen = set()
+    try:
+        if CACHE_PATH.exists():
+            cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+            entries = cache.get("entries", {}) if isinstance(cache, dict) else {}
+            for key, v in entries.items():
+                if not isinstance(v, dict):
+                    continue
+                note = v.get("note")
+                ms_list = re.findall(r"(\d+)\s*ms", str(note)) if note else []
+                if not ms_list:
+                    continue
+                try:
+                    ms = int(ms_list[-1])
+                except (TypeError, ValueError):
+                    continue
+                if "::" in key:
+                    prov, model = key.split("::", 1)
+                else:
+                    prov, model = "", key
+                dedup_key = (prov, model)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                rows.append((ms, prov, model, bool(v.get("passed"))))
+    except Exception as e:
+        print(f"  (cache read failed: {e})", file=sys.stderr)
+    last = load_last_selection()
+    if isinstance(last, list):
+        for m in last:
+            rt = m.get("_response_time_ms")
+            if not isinstance(rt, int):
+                continue
+            prov = m.get("_provider") or ""
+            model = m.get("id") or ""
+            dedup_key = (prov, model)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            rows.append((rt, prov, model, True))
+    if not rows:
+        print("No recorded response times found.")
+        return
+    rows.sort(key=lambda r: r[0])
+    print("\n" + "=" * 90)
+    print(f"RECORDED RESPONSE TIMES  ({len(rows)} models, sorted fastest first)")
+    print("=" * 90)
+    print(f"  {'ms':>7}  {'status':<6}  {'provider':<14}  model")
+    print(f"  {'-' * 86}")
+    for ms, prov, model, passed in rows:
+        status = "PASS" if passed else "FAIL"
+        print(f"  {ms:>7}  {status:<6}  {prov:<14}  {model}")
+    print("=" * 90 + "\n")
+
+
 def promo_streak(history, model_id):
     return int(history.get(model_id, {}).get("consecutive_clean_passes", 0))
 
@@ -1418,6 +1476,8 @@ def main():
                     help="Disable emergency promotion when incumbent is dead")
     ap.add_argument("--show-history", action="store_true",
                     help="Print promotion history table and exit")
+    ap.add_argument("--show-response-times", action="store_true",
+                    help="Print recorded probe response times (ms) and exit")
     ap.add_argument("--no-promote", action="store_true",
                     help="Only refresh the fallback chain; leave model.default unchanged")
     ap.add_argument("--hermes-home", metavar="PATH",
@@ -1494,6 +1554,9 @@ def main():
                 sys.exit(0)
     if args.show_history:
         show_promotion_history(load_promotion_history())
+        sys.exit(0)
+    if args.show_response_times:
+        show_response_times()
         sys.exit(0)
 
     # --- ranking matrix management (no probing) ---
