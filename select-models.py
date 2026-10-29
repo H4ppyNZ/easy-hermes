@@ -1332,7 +1332,16 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
 
     key, _ = providers.get_api_key(cfg)
 
-    if not cfg.get("probe", True):
+    # If probing is enabled but no credential is available (and the provider
+    # isn't a keyless local daemon), fall back to listing-only instead of
+    # probing unauthenticated and failing every model.
+    if (not cfg.get("probe", True)) or (key is None and slug != "ollama-local"):
+        # listing-only path
+        _listing_only = True
+    else:
+        _listing_only = False
+
+    if _listing_only:
         cands = rank_models(models, ranking)
         if top_n is not None:
             cands = cands[:top_n]
@@ -1504,6 +1513,24 @@ def main():
         PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 
     reasoning_mode = "high" if getattr(args, "reasoning", False) else None
+
+    # Load Nous Portal credential from Hermes auth store into env (if not already set),
+    # so Nous models can be probed like any other provider.
+    if not os.environ.get("NOUS_API_KEY"):
+        try:
+            import json as _j
+            _auth_path = HERMES_HOME / "auth.json"
+            if _auth_path.exists():
+                _auth = _j.loads(_auth_path.read_text(encoding="utf-8"))
+                _cp = _auth.get("credential_pool", {})
+                _nous_creds = _cp.get("nous", []) if isinstance(_cp, dict) else []
+                for _c in _nous_creds:
+                    _tok = _c.get("access_token") if isinstance(_c, dict) else None
+                    if _tok:
+                        os.environ["NOUS_API_KEY"] = str(_tok).strip()
+                        break
+        except Exception:
+            pass
 
     # --- ban list management ---
     banned = load_banned()

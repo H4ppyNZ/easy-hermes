@@ -73,7 +73,7 @@ PROVIDERS = {
         "env_any": [],                       # public tags endpoint works keyless
         "env_optional": ["OLLAMA_API_KEY", "OLLAMA_CLOUD_API_KEY"],
         "requires_key": False,
-        "probe": False,
+        "probe": True,
         "probe_kind": "openai",
         "probe_base_url": "https://api.ollama.com/v1",
         "default_enabled": True,
@@ -113,9 +113,9 @@ PROVIDERS = {
         "module": "pollers.poll_nous",
         "fetch_fn": "poll",
         "env_any": [],                       # cache-based; auth handled by select-models
-        "env_optional": [],
+        "env_optional": ["NOUS_API_KEY"],
         "requires_key": False,
-        "probe": False,
+        "probe": True,
         "probe_kind": "openai",
         "probe_base_url": "https://inference-api.nousresearch.com/v1",
         "default_enabled": True,
