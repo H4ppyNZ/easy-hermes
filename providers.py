@@ -32,7 +32,6 @@ PROVIDERS = {
         },
         "default_enabled": True,
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
     "nvidia": {
         "slug": "nvidia",
@@ -65,7 +64,6 @@ PROVIDERS = {
         "probe_timeout": 15,
         "default_enabled": True,
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
     "ollama-cloud": {
         "slug": "ollama-cloud",
@@ -80,7 +78,6 @@ PROVIDERS = {
         "probe_base_url": "https://api.ollama.com/v1",
         "default_enabled": True,
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
     "novita": {
         "slug": "novita",
@@ -95,7 +92,6 @@ PROVIDERS = {
         "probe_base_url": "https://api.novita.ai/v3/openai",
         "default_enabled": True,
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
     "ollama-local": {
         "slug": "ollama-local",
@@ -110,7 +106,6 @@ PROVIDERS = {
         "probe_base_url": None,
         "default_enabled": False,            # opt-in: most users lack hardware
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
     "nous": {
         "slug": "nous",
@@ -125,7 +120,6 @@ PROVIDERS = {
         "probe_base_url": "https://inference-api.nousresearch.com/v1",
         "default_enabled": True,
         "probe_top_first_run": 3,
-        "probe_top_nightly": 12,
     },
 }
 

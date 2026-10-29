@@ -170,7 +170,7 @@ if ($SkipUpdate) {
 
 # -- Step 2: Refresh free-model chain + apply the promotion gate --
 Write-Log "Step 2/4: Updating fallback/default model chain..."
-$fallbackArgs = @($selectorPy, '--hermes-home', $HermesHome)
+$fallbackArgs = @($selectorPy, '--hermes-home', $HermesHome, '--full')
 if ($DryRun) { $fallbackArgs += "--dry-run" }
 $r = Invoke-Native -Exe $pythonPath -Arguments $fallbackArgs
 Write-Log "Model chain update output: $($r.Output)"

@@ -394,7 +394,7 @@ BANNED_PATH = HERMES_HOME / "cache" / "banned_models.json"
 BOOSTED_PATH = HERMES_HOME / "cache" / "boosted_models.json"
 PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 PROMOTION_MARGIN = 2
-PROVIDER_COOLDOWN_SECONDS = float(os.environ.get("EASY_HERMES_PROVIDER_COOLDOWN", "5"))
+POLL_COOLDOWN_SECONDS = float(os.environ.get("EASY_HERMES_POLL_COOLDOWN", "1"))
 HYSTERESIS_DAYS = 7
 HISTORY_PRUNE_DAYS = 30
 
@@ -1319,7 +1319,14 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
 
     can_probe = not (cfg.get("probe_kind") == "openai" and not key)
     passed_here = 0
-    for m in cands:
+    poll_cooldown = getattr(args, "poll_cooldown", None)
+    if poll_cooldown is None:
+        poll_cooldown = POLL_COOLDOWN_SECONDS
+        if getattr(args, "full", False):
+            poll_cooldown = max(poll_cooldown, 2.0)
+    for i, m in enumerate(cands):
+        if i > 0 and poll_cooldown and poll_cooldown > 0:
+            time.sleep(poll_cooldown)
         mid = m.get("id")
         if not can_probe:
             if passed_here >= 1:
@@ -1415,8 +1422,8 @@ def main():
                     help="Only refresh the fallback chain; leave model.default unchanged")
     ap.add_argument("--hermes-home", metavar="PATH",
                     help="Hermes home directory (overrides HERMES_HOME env / default)")
-    ap.add_argument("--provider-cooldown", type=float, metavar="SEC",
-                    help=f"Seconds to wait between starting providers (default {PROVIDER_COOLDOWN_SECONDS})")
+    ap.add_argument("--poll-cooldown", type=float, metavar="SEC",
+                    help=f"Seconds to wait between model probes within a provider (default {POLL_COOLDOWN_SECONDS}; {2.0} when --full)")
     ap.add_argument("--openrouter-top", type=int, metavar="N",
                     help="Cap OpenRouter probes to N (default 3; 0 = no cap)")
     ap.add_argument("--capability", metavar="CAP",
@@ -1641,12 +1648,7 @@ def main():
     total_providers = len(configured)
     with ThreadPoolExecutor(max_workers=max(1, len(configured))) as ex:
         futures = {}
-        cooldown = getattr(args, "provider_cooldown", None)
-        if cooldown is None:
-            cooldown = PROVIDER_COOLDOWN_SECONDS
-        for i, slug in enumerate(configured):
-            if i > 0 and cooldown and cooldown > 0:
-                time.sleep(cooldown)
+        for slug in configured:
             cfg = providers.PROVIDERS[slug]
             futures[ex.submit(_process_provider, slug, cfg,
                              ranking=ranking, reasoning_mode=reasoning_mode,

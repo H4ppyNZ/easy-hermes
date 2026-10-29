@@ -369,7 +369,7 @@ if ($runSelector) {
     # Belt and braces: the script reconfigures its own stdout at import,
     # but a caller without this env var used to crash it under cp1252.
     $env:PYTHONUTF8 = '1'
-    $selectorArgs = @($selectorPy, '--hermes-home', $HermesHome)
+    $selectorArgs = @($selectorPy, '--hermes-home', $HermesHome, '--full')
     # Bootstrap: with NO incumbent in model.default the gate's 2-clean-pass
     # margin would decline to promote anything, leaving the default unset --
     # and the runtime then resolves an unset default to the provider's PAID

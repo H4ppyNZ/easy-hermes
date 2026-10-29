@@ -147,18 +147,20 @@ def fetch_models(base_url):
 def _post_chat(base_url, model_id, max_tokens, timeout=60):
     url = base_url.rstrip("/") + "/chat/completions"
     payload = {"model": model_id,
-               "messages": [{"role": "user", "content": "Say 'ok' and nothing else."}],
+               "messages": [{"role": "user", "content": "If I have 3 apples and eat 1, how many are left? Answer with just the number."}],
                "max_tokens": max_tokens}
     req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                 headers={"Content-Type": "application/json",
                                          "User-Agent": "hermes-ollama-selector"})
     try:
+        start = time.perf_counter()
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return ("ok", json.loads(resp.read()), resp.status)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            return ("ok", json.loads(resp.read()), resp.status, elapsed_ms)
     except urllib.error.HTTPError as e:
-        return ("http_error", e.read().decode()[:200], e.code)
+        return ("http_error", e.read().decode()[:200], e.code, None)
     except Exception as e:
-        return ("error", f"{type(e).__name__}: {e}", None)
+        return ("error", f"{type(e).__name__}: {e}", None, None)
 
 
 def probe_model(model_id, base_url, fast=False):

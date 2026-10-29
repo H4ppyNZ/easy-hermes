@@ -25,9 +25,6 @@ python select-models.py --providers gemini --dry-run
 # retest one model across providers
 python select-models.py --model deepseek-v4-pro:0813 --dry-run --refresh
 
-# night-level budget (top-12)
-python select-models.py --dry-run --nightly
-
 # full sweep (every candidate) - use sparingly
 python select-models.py --dry-run --full
 

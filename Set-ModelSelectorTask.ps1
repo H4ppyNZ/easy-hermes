@@ -58,7 +58,7 @@ $wrapperScript = Join-Path $PSScriptRoot 'Run-ModelSelectorTask.ps1'
 $wrapperContent = @"
 `$env:PYTHONUTF8 = '1'
 `$env:PYTHONIOENCODING = 'utf-8'
-& '$pythonPath' '$selectorScript' --hermes-home '$HermesHome' `@args
+& '$pythonPath' '$selectorScript' --hermes-home '$HermesHome' --full `@args
 exit `$LASTEXITCODE
 "@
 
