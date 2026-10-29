@@ -82,6 +82,7 @@ not rewrite `config.yaml`.
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
 - `Set-ReviewTask.ps1` — registers a daily Windows scheduled task that reviews the nightly run (6 AM)
+- `Set-HermesCronMonitor.ps1` — registers a Hermes cron job that monitors the NightlyRestartTask event log (7:20 AM)
 - `ReviewNightlyTask.ps1` — the review script (task health, event log, config, gateway)
 - `docs/installer-safety.md` — blast radius and safe re-run order for each step
 - `tools/` — operational helper scripts (fallback config) with README
@@ -152,6 +153,13 @@ shell env:
 
 - `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`, `OLLAMA_API_KEY`
 - `OPENROUTER_API_KEY` is optional (not set).
+
+Set them interactively (secure prompt, never echoed) with:
+
+    .\\Set-EnvKeys.ps1
+
+Or manually: `[Environment]::SetEnvironmentVariable("NVIDIA_API_KEY","...","User")`.
+Open a new shell afterwards so processes pick up the values.
 
 ## Known issue (resolved)
 

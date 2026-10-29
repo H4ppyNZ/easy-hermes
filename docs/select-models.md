@@ -56,6 +56,9 @@ Keys live in Windows user env (`HKEY_CURRENT_USER\Environment`), not shell env:
 - `OLLAMA_API_KEY` / `OLLAMA_CLOUD_API_KEY` (Ollama Cloud, optional)
 - `OPENROUTER_API_KEY` (OpenRouter, optional but enables probing)
 
+Set them interactively with `Set-EnvKeys.ps1` (secure prompt, never echoed), or via
+`[Environment]::SetEnvironmentVariable("NAME","value","User")`. Open a new shell afterwards.
+
 ## Key validation
 
 Before probing, `providers.validate_key()` makes one authenticated smoke request

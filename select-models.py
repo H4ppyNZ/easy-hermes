@@ -1600,6 +1600,20 @@ def main():
         ranking = load_ranking_config()
         configured = providers.configured_providers(user_list=user_list, prefer_local=args.prefer_local)
 
+    # Hint about optional provider keys that are missing.
+    missing_key_providers = []
+    for slug, cfg in providers.PROVIDERS.items():
+        if user_list is not None and slug not in user_list:
+            continue
+        env_any = cfg.get("env_any", [])
+        if env_any and not any(os.environ.get(k) for k in env_any):
+            missing_key_providers.append((slug, cfg.get("display", slug), env_any))
+    if missing_key_providers:
+        print("Optional provider keys not set (skipping those providers):")
+        for slug, display, envs in missing_key_providers:
+            print(f"  {display} ({slug}): set one of {', '.join(envs)}")
+        print("  Run Set-EnvKeys.ps1 to configure them securely, then re-run with --refresh.")
+
     if args.model:
         print("Targeted retest:")
         for slug in configured:

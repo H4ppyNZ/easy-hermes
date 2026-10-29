@@ -287,6 +287,36 @@ if ($Yolo) {
     }
 }
 
+# --- 4b. provider API keys (optional) -------------------------------------
+# Offer to configure provider keys (NVIDIA/Google/Novita/Ollama/OpenRouter) so
+# the selector can probe those providers. Keys are stored in Windows user env.
+if (-not $SchedulerOnly -and -not $SelectorOnly) {
+    $envScript = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'Set-EnvKeys.ps1' } else { $null }
+    if (-not ($envScript -and (Test-Path -LiteralPath $envScript))) {
+        $envUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/Set-EnvKeys.ps1'
+        $envDest = Join-Path $env:TEMP 'Set-EnvKeys.ps1'
+        try {
+            Invoke-WebRequest -Uri $envUrl -OutFile $envDest -UseBasicParsing
+            $envScript = $envDest
+        } catch {
+            Write-Warn "Could not fetch Set-EnvKeys.ps1: $($_.Exception.Message)"
+            $envScript = $null
+        }
+    }
+    if ($envScript) {
+        Write-Step "Provider API keys (optional)"
+        Write-Info "Enables probing of NVIDIA / Google / Novita / Ollama Cloud / OpenRouter."
+        $ans = Read-Host "Configure provider API keys now? [y/N]"
+        if ($ans -eq 'y' -or $ans -eq 'Y') {
+            # Dot-source so the keys land in this process env and are inherited
+            # by the selector child process below.
+            . $envScript
+        } else {
+            Write-Info "Skipped. Run Set-EnvKeys.ps1 later, then re-run the selector with --refresh."
+        }
+    }
+}
+
 } # end else (SelectorOnly)
 
 # --- 5. model selector -----------------------------------------------------
@@ -552,7 +582,7 @@ if (-not $SkipDocs) {
 # --- Scheduler registration (yolo) -----------------------------------------
 if ($Yolo) {
     Write-Step "Registering scheduled tasks (yolo)"
-    foreach ($scriptName in @("Set-ModelSelectorTask.ps1", "Set-NightlyTask.ps1", "Set-ReviewTask.ps1")) {
+    foreach ($scriptName in @("Set-ModelSelectorTask.ps1", "Set-NightlyTask.ps1", "Set-ReviewTask.ps1", "Set-HermesCronMonitor.ps1")) {
         $scriptPath = Join-Path $PSScriptRoot $scriptName
         if (Test-Path -LiteralPath $scriptPath -PathType Leaf) {
             try {
