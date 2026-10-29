@@ -22,6 +22,7 @@ CONFIG_PATH = HERMES_HOME / "config.yaml"
 CACHE_PATH = HERMES_HOME / "cache" / "free_model_probe_cache.json"
 REPO_DIR = Path(__file__).resolve().parent
 LAST_PASSING_PATH = REPO_DIR / "out" / "last_selection.json"
+LIST_ONLY = False
 sys.path.insert(0, str(REPO_DIR))
 
 import providers
@@ -1335,7 +1336,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
     # If probing is enabled but no credential is available (and the provider
     # isn't a keyless local daemon), fall back to listing-only instead of
     # probing unauthenticated and failing every model.
-    if (not cfg.get("probe", True)) or (key is None and slug != "ollama-local"):
+    if LIST_ONLY or (not cfg.get("probe", True)) or (key is None and slug != "ollama-local"):
         # listing-only path
         _listing_only = True
     else:
@@ -1487,6 +1488,8 @@ def main():
                     help="Print promotion history table and exit")
     ap.add_argument("--show-response-times", action="store_true",
                     help="Print recorded probe response times (ms) and exit")
+    ap.add_argument("--list-only", action="store_true",
+                    help="List candidates without probing; include top models unverified")
     ap.add_argument("--no-promote", action="store_true",
                     help="Only refresh the fallback chain; leave model.default unchanged")
     ap.add_argument("--hermes-home", metavar="PATH",
@@ -1513,6 +1516,9 @@ def main():
         PROMOTION_HISTORY_PATH = HERMES_HOME / "cache" / "promotion_history.json"
 
     reasoning_mode = "high" if getattr(args, "reasoning", False) else None
+
+    global LIST_ONLY
+    LIST_ONLY = bool(getattr(args, "list_only", False))
 
     # Load Nous Portal credential from Hermes auth store into env (if not already set),
     # so Nous models can be probed like any other provider.
