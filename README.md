@@ -149,17 +149,41 @@ Output: `out/ollama-cloud.json`.
 ## Environment / API keys
 
 Keys are stored in Windows user env (`HKEY_CURRENT_USER\Environment`), not
-shell env:
-
-- `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`, `OLLAMA_API_KEY`
-- `OPENROUTER_API_KEY` is optional (not set).
-
-Set them interactively (secure prompt, never echoed) with:
+shell env. Set them interactively (secure prompt, never echoed) with:
 
     .\\Set-EnvKeys.ps1
 
-Or manually: `[Environment]::SetEnvironmentVariable("NVIDIA_API_KEY","...","User")`.
+Or manually: `[Environment]::SetEnvironmentVariable("NAME","...","User")`.
 Open a new shell afterwards so processes pick up the values.
+
+Where to get each key:
+
+- **Nous Portal** (recommended; 300+ models, OAuth or API key): register at
+  https://portal.nousresearch.com, add credits/subscription, then create an
+  inference API key (`sk-nous-...`) in the dashboard. Env: `NOUS_API_KEY`.
+  Hermes can also do OAuth via `hermes auth` / `hermes setup --portal`.
+- **OpenRouter** (optional; raises rate limits; free models list works without a key):
+  https://openrouter.ai/settings/keys. Env: `OPENROUTER_API_KEY`.
+- **NVIDIA NIM** (required to poll the NIM catalog): create a Personal API key at
+  https://org.ngc.nvidia.com/setup/api-key (select at least "AI Foundation Models
+  and Endpoints" / "NGC Catalog"; legacy keys are not supported). Some models also
+  require accepting the model agreement on https://build.nvidia.com. Env:
+  `NVIDIA_API_KEY` or `NGC_API_KEY`.
+- **Google AI Studio / Gemini** (required): https://aistudio.google.com/apikey.
+  New keys are auth keys (May 2026+); new keys start with `AQ.`. Env:
+  `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
+- **Ollama Cloud** (optional; public tags work without a key):
+  https://ollama.com/settings/keys. Env: `OLLAMA_API_KEY` or `OLLAMA_CLOUD_API_KEY`.
+- **Novita AI** (required): https://novita.ai/settings (API keys). Free Sandbox
+  credit is 90-day, one-time and may not cover LLM API. Env: `NOVITA_API_KEY`
+  (aliases `NOVITA_KEY`, `NOVITA_AI_API_KEY`).
+
+Notes:
+- `OPENROUTER_API_KEY` is optional; the public model listing works without it but
+  a key raises the rate limit.
+- NVIDIA models are account-gated: a 404 during probing usually means no
+  agreement on build.nvidia.com, not a bad key.
+- Novita `NOT_ENOUGH_BALANCE` means exhausted/expired credit.
 
 ## Known issue (resolved)
 
