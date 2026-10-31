@@ -215,6 +215,23 @@ def normalize_model(item, source=None):
             except (TypeError, ValueError):
                 rec["context_window"] = raw.get(k)
             break
+    # Cloudflare provides created_at (use as release-date source) and a
+    # properties array (price, async_queue, realtime, ...).
+    if "created_at" in raw and raw.get("created_at") is not None:
+        rec["created"] = raw.get("created_at")
+        rec["created_at"] = raw.get("created_at")
+    props = raw.get("properties")
+    if isinstance(props, list):
+        for prop in props:
+            if not isinstance(prop, dict):
+                continue
+            pid = prop.get("property_id")
+            if pid == "price":
+                val = prop.get("value")
+                if val is not None:
+                    rec["price"] = val
+            elif pid in ("async_queue", "realtime"):
+                rec[pid] = prop.get("value")
     t = raw.get("task")
     if isinstance(t, dict):
         t = t.get("name") or t.get("id")
