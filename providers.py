@@ -121,6 +121,22 @@ PROVIDERS = {
         "default_enabled": True,
         "probe_top_first_run": 3,
     },
+    "cloudflare": {
+        "slug": "cloudflare",
+        "display": "Cloudflare Workers AI",
+        "module": "pollers.poll_cloudflare",
+        "fetch_fn": "poll",
+        "env_any": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY",
+                    "CLOUDFLARE_WORKERS_AI_TOKEN"],
+        "env_optional": ["CLOUDFLARE_ACCOUNT_ID", "CF_ACCOUNT_ID",
+                         "CLOUDFLARE_ACCOUNT"],
+        "requires_key": True,
+        "probe": False,                     # account-scoped; listed as best-effort/unverified
+        "probe_kind": "openai",
+        "probe_base_url": None,
+        "default_enabled": True,
+        "probe_top_first_run": 3,
+    },
 }
 
 def validate_key(cfg, timeout=10):
@@ -146,6 +162,9 @@ def validate_key(cfg, timeout=10):
         return True, "no key required"
 
     base = (cfg.get("probe_base_url") or "").rstrip("/")
+    if not base:
+        # account-scoped providers (e.g. Cloudflare) have no fixed probe URL
+        return True, "no probe base url (account-scoped); key not validated remotely"
     kind = cfg.get("probe_kind")
     try:
         if kind == "gemini":

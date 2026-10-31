@@ -5,7 +5,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 POLLERS = ["pollers.poll_openrouter", "pollers.poll_nvidia", "pollers.poll_gemini",
-           "pollers.poll_ollama_cloud", "pollers.poll_novita", "pollers.poll_nous"]
+           "pollers.poll_ollama_cloud", "pollers.poll_novita", "pollers.poll_nous",
+           "pollers.poll_cloudflare"]
 
 
 def test_poller_contract():
