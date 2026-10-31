@@ -79,7 +79,7 @@ Write-Output "pinned=$pinned installed=$installed"
 
 8. If there are NO errors, NO actionable items, NO cua-driver version change, and NO model chain changes (the run completed successfully with nothing to raise), your final response should be a short status message: start with `Nothing of note`, then run this command via the terminal tool to read the current model chain and append its output:
 ```powershell
-C:/Users/mattw/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -c "import yaml; d=yaml.safe_load(open('C:/Users/mattw/AppData/Local/hermes/config.yaml')); m=d.get('model',{}) or {}; print('Current primary mode:', m.get('default')); [print('Fallback:', ('cloudflare' if (e.get('provider')=='custom' and str(e.get('model','')).startswith('@cf/')) else e.get('provider')), e.get('model')) for i,e in enumerate(d.get('fallback_providers',[]) or [], 1)]"
+C:/Users/mattw/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe -c "import yaml; d=yaml.safe_load(open('C:/Users/mattw/AppData/Local/hermes/config.yaml')); m=d.get('model',{}) or {}; print('Current primary mode:', m.get('default')); [print('Fallback:', (e.get('provider_display') or ('cloudflare' if (str(e.get('model','')).startswith('@cf/')) else (e.get('provider') or 'custom'))), e.get('model')) for e in (d.get('fallback_providers',[]) or [])]"
 ```
 So the message reads, e.g.:
 Nothing of note

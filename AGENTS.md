@@ -55,6 +55,7 @@ git add -A; git commit -m "..."; git push origin main
 - Nous models like `reflection/beam-1.0-501b-a23b:free` aren't in `/model` picker; set via config or `/model`.
 - Gemini keys start with `AQ.` and use `x-goog-api-key` header; OpenRouter needs `HTTP-Referer` + `X-Title`; NVIDIA models account-gated.
 - Probe cache masks code changes; run `--refresh` after changing headers/validation.
+- Custom (account-scoped) providers now keep identity via `provider_display` on config entries; NightlyRestart monitor reads it. Adding a custom provider needs no cron-prompt edit. See docs/select-models.md.
 
 ## Deeper context
 

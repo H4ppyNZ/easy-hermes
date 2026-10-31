@@ -153,7 +153,30 @@ If a provider should get a real descriptor (not `custom`), three changes are nee
        entry.pop("base_url", None)
    ```
 
-### Why not just always use `custom`?
+### Custom providers and display identity
+
+Even providers that stay `custom` (account-scoped / per-user endpoints such as
+Cloudflare Workers AI) now keep their originating slug for display. `select-models.py`
+writes a `provider_display` key on every `custom` entry it creates (default model
+and fallbacks), e.g.:
+
+```yaml
+fallback_providers:
+  - {provider: custom, model: @cf/..., base_url: https://..., provider_display: cloudflare}
+```
+
+The NightlyRestart monitor (`cron/nightly-monitor-prompt.txt`) prints
+`provider_display` when present, falling back to a model-prefix heuristic
+(`@cf/` -> cloudflare) and finally `custom`. As a result, adding a new custom
+provider (e.g. `streamlake`) requires **no cron-prompt edit**: the first
+selector run stamps `provider_display: streamlake` and the monitor shows it.
+Legacy entries without the key are migrated on the next selector run (derived
+from the model prefix or base URL).
+
+When adding a new custom provider, only the usual registry/poller changes are
+needed (see `providers.py` and the poller contract); display identity is handled
+automatically. Only promote a provider to a *named* descriptor (the steps above)
+if you need Hermes itself to resolve it without `base_url`.
 
 `custom` works functionally, but it loses provider identity in logs, config, and the
 NightlyRestart monitor's status message. A named descriptor makes it clear which

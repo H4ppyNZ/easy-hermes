@@ -1237,10 +1237,16 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
                 cfg["model"] = mcfg
             mcfg["default"] = best["id"]
             mcfg["provider"] = hermes_provider
-            if hermes_provider == "custom" and best.get("_base_url"):
-                mcfg["base_url"] = best["_base_url"]
+            if hermes_provider == "custom":
+                # Preserve the originating provider's identity (Hermes stores these
+                # as `custom`, which loses it in logs/config/monitor output). Consumers
+                # (e.g. the NightlyRestart monitor) read `provider_display`.
+                mcfg["provider_display"] = best_provider
+                if best.get("_base_url"):
+                    mcfg["base_url"] = best["_base_url"]
             else:
                 mcfg.pop("base_url", None)
+                mcfg.pop("provider_display", None)
 
         # fallback chain: all passing except the effective default
         fb = []
@@ -1250,13 +1256,53 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
             prov = m.get("_provider", "custom")
             hp = prov if prov in ("nous", "openrouter", "custom", "ollama-cloud", "nvidia", "gemini", "novita") else "custom"
             entry = {"provider": hp, "model": m["id"]}
-            if hp == "custom" and m.get("_base_url"):
-                entry["base_url"] = m["_base_url"]
+            if hp == "custom":
+                entry["provider_display"] = prov
+                if m.get("_base_url"):
+                    entry["base_url"] = m["_base_url"]
             fb.append(entry)
 
         existing = cfg.get("fallback_providers")
         if not isinstance(existing, list):
             existing = []
+        # Migrate legacy custom entries to carry provider_display (identity is
+        # otherwise lost because Hermes stores them as provider: custom).
+        try:
+            import providers as _provmod
+            _slugs = list(getattr(_provmod, "PROVIDERS", {}).keys())
+        except Exception:
+            _slugs = []
+        for e in existing:
+            if not isinstance(e, dict) or e.get("provider") != "custom":
+                continue
+            if "provider_display" in e and e.get("provider_display"):
+                continue
+            derived = None
+            model = str(e.get("model") or "")
+            if model.startswith("@cf/"):
+                derived = "cloudflare"
+            bu = e.get("base_url")
+            if derived is None and isinstance(bu, str):
+                low = bu.lower()
+                for slug in _slugs:
+                    if slug and slug in low:
+                        derived = slug
+                        break
+                if derived is None:
+                    # fall back to first hostname label
+                    try:
+                        from urllib.parse import urlparse
+                        host = urlparse(bu).hostname or ""
+                        if host:
+                            derived = host.split(".")[0]
+                            if derived == "api":
+                                parts = host.split(".")
+                                if len(parts) > 1:
+                                    derived = parts[1]
+                    except Exception:
+                        derived = None
+            if derived:
+                e["provider_display"] = derived
         existing_keys = {(str(e.get("provider")), str(e.get("model"))) for e in existing if isinstance(e, dict)}
         new_fb = [e for e in fb if (str(e.get("provider")), str(e.get("model"))) not in existing_keys]
         cfg["fallback_providers"] = list(existing) + new_fb

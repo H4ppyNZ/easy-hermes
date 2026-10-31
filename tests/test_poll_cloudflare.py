@@ -37,7 +37,10 @@ class TestPollCloudflare(unittest.TestCase):
 
     def test_no_account_returns_empty(self):
         # no account id -> no endpoint -> empty, no raise
-        self.assertEqual(pc.poll(), [])
+        # Isolate from host env (this machine has real CF creds set).
+        cleared = {k: "" for k in (pc.TOKEN_ENVS + pc.ACCOUNT_ENVS)}
+        with patch.dict(os.environ, cleared, clear=False):
+            self.assertEqual(pc.poll(), [])
 
     def test_normalize_context(self):
         raw = {"name": "m", "task": "Text Generation", "context_window": 8192}
