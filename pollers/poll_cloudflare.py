@@ -160,8 +160,8 @@ def parse_models_payload(payload):
                 item = {"id": item, "name": item}
             else:
                 continue
-        mid = (item.get("id") or item.get("name") or item.get("model")
-               or item.get("slug") or item.get("model_id"))
+        mid = (item.get("name") or item.get("model") or item.get("slug")
+               or item.get("model_id") or item.get("source") or item.get("id"))
         if mid is None:
             for v in item.values():
                 if isinstance(v, str) and v.strip():
@@ -178,7 +178,11 @@ def parse_models_payload(payload):
 def _is_chat_task(item):
     task = ""
     if isinstance(item, dict):
-        task = str(item.get("task") or item.get("task_name") or item.get("type") or "").strip().lower()
+        t = item.get("task") or item.get("task_name") or item.get("type")
+        if isinstance(t, dict):
+            task = str(t.get("name") or t.get("id") or "").strip().lower()
+        elif t is not None:
+            task = str(t).strip().lower()
     if not task:
         return True  # unknown -> keep, let downstream filter
     return task in CHAT_TASKS or "text" in task or "chat" in task
@@ -189,8 +193,8 @@ def normalize_model(item, source=None):
         mid = item.strip()
         raw = {}
     elif isinstance(item, dict):
-        mid = (item.get("id") or item.get("name") or item.get("model")
-               or item.get("slug") or item.get("model_id"))
+        mid = (item.get("name") or item.get("model") or item.get("slug")
+               or item.get("model_id") or item.get("source") or item.get("id"))
         mid = str(mid).strip() if mid is not None else ""
         raw = item
     else:
