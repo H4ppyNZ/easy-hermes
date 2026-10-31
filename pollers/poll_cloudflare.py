@@ -161,7 +161,7 @@ def parse_models_payload(payload):
             else:
                 continue
         mid = (item.get("name") or item.get("model") or item.get("slug")
-               or item.get("model_id") or item.get("source") or item.get("id"))
+               or item.get("model_id") or item.get("id"))
         if mid is None:
             for v in item.values():
                 if isinstance(v, str) and v.strip():
@@ -185,7 +185,7 @@ def _is_chat_task(item):
             task = str(t).strip().lower()
     if not task:
         return True  # unknown -> keep, let downstream filter
-    return task in CHAT_TASKS or "text" in task or "chat" in task
+    return task in CHAT_TASKS or "generation" in task or "chat" in task
 
 
 def normalize_model(item, source=None):
@@ -194,7 +194,7 @@ def normalize_model(item, source=None):
         raw = {}
     elif isinstance(item, dict):
         mid = (item.get("name") or item.get("model") or item.get("slug")
-               or item.get("model_id") or item.get("source") or item.get("id"))
+               or item.get("model_id") or item.get("id"))
         mid = str(mid).strip() if mid is not None else ""
         raw = item
     else:
@@ -215,8 +215,11 @@ def normalize_model(item, source=None):
             except (TypeError, ValueError):
                 rec["context_window"] = raw.get(k)
             break
-    if "task" in raw and raw.get("task") is not None:
-        rec["task"] = raw.get("task")
+    t = raw.get("task")
+    if isinstance(t, dict):
+        t = t.get("name") or t.get("id")
+    if t is not None:
+        rec["task"] = t
     if "description" in raw and raw.get("description") is not None:
         rec["description"] = raw.get("description")
     if source is not None:
