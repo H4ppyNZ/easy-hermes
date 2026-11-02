@@ -134,7 +134,7 @@ PROVIDERS = {
         "probe": False,                     # account-scoped; listed as best-effort/unverified
         "probe_kind": "openai",
         "probe_base_url": None,
-        "default_enabled": True,
+        "default_enabled": False,           # disabled by default (opt-in); account-scoped/unverified
         "probe_top_first_run": 3,
     },
 }
