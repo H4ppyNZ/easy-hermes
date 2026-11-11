@@ -1265,6 +1265,11 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
         existing = cfg.get("fallback_providers")
         if not isinstance(existing, list):
             existing = []
+        # Keep only fallback entries that are still passing; a model that stops
+        # passing (e.g. is no longer free / fails its probe) drops out of the
+        # chain instead of lingering forever.
+        passing_ids = {_model_id(m) for m in (passing or [])}
+        existing = [e for e in existing if isinstance(e, dict) and str(e.get("model")) in passing_ids]
         # Migrate legacy custom entries to carry provider_display (identity is
         # otherwise lost because Hermes stores them as provider: custom).
         try:
@@ -1379,6 +1384,15 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
 
     key, _ = providers.get_api_key(cfg)
 
+    # Boosted models keep their sort boost for ranking, but they must prove
+    # they are functional RIGHT NOW to stay in the passing/fallback chain.
+    # Bypass the probe cache so a stale "passed" entry cannot keep a dead
+    # boosted model in the chain.
+    try:
+        boosted = load_boosted()
+    except Exception:
+        boosted = set()
+
     # If probing is enabled but no credential is available (and the provider
     # isn't a keyless local daemon), fall back to listing-only instead of
     # probing unauthenticated and failing every model.
@@ -1458,8 +1472,10 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
             probed_list.append({"model": mid, "test_passed": True, "clean_pass": False,
                                "fail_note": "no API key to probe", "release_date": m.get("_release_date")})
             continue
+        # Boosted models are always re-probed live: a stale cached pass must
+        # not keep a non-functional boosted model in passing/fallback.
         with cache_lock:
-            cr = cached_result(cache, slug, mid, args.refresh)
+            cr = None if str(mid) in boosted else cached_result(cache, slug, mid, args.refresh)
         if cr is not None:
             cached_passed, cached_note, cached_retried = cr
             ok2, note, retried = cached_passed, cached_note, cached_retried
