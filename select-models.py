@@ -1194,7 +1194,7 @@ def load_config():
         return {}, yaml
 
 
-def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=True):
+def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=True, probed_all=None):
     if not passing and not chosen and not current_default:
         return
     import atomic_io
@@ -1267,9 +1267,12 @@ def write_config(passing, yaml_mod, chosen=None, current_default=None, promote=T
             existing = []
         # Keep only fallback entries that are still passing; a model that stops
         # passing (e.g. is no longer free / fails its probe) drops out of the
-        # chain instead of lingering forever.
+        # chain instead of lingering forever. Models from providers not probed
+        # this run (e.g. --providers nous) are preserved, not pruned.
         passing_ids = {_model_id(m) for m in (passing or [])}
-        existing = [e for e in existing if isinstance(e, dict) and str(e.get("model")) in passing_ids]
+        probed_ids = {str(m.get("model")) for m in (probed_all or []) if isinstance(m, dict)}
+        existing = [e for e in existing if isinstance(e, dict) and (
+            str(e.get("model")) not in probed_ids or str(e.get("model")) in passing_ids)]
         # Migrate legacy custom entries to carry provider_display (identity is
         # otherwise lost because Hermes stores them as provider: custom).
         try:
@@ -1406,8 +1409,7 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
         cands = rank_models(models, ranking)
         if top_n is not None:
             cands = cands[:top_n]
-        _print(f"  fetched {len(models)} candidate(s); listing-only, including top {len(cands)} (unverified)")
-        passed_here = 0
+        _print(f"  fetched {len(models)} candidate(s); listing-only, including top {len(cands)} (unverified, not added to passing)")
         for m in cands:
             m["_provider"] = slug
             m["_base_url"] = cfg.get("probe_base_url")
@@ -1415,13 +1417,14 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
             m["_probe_note"] = "unverified (listing only, no probe)"
             m["_reasoning"] = 0.0
             m["_response_time_ms"] = None
-            passing_list.append(m)
-            passed_here += 1
-            probed_list.append({"model": m["id"], "test_passed": True, "clean_pass": False,
+            # Unverified models (no probe possible, e.g. missing API key) must
+            # not enter passing_list / fallback / model.default. Track them in
+            # probed_list for history only.
+            probed_list.append({"model": m["id"], "test_passed": False, "clean_pass": False,
                                "fail_note": "listing-only (no probe)", "release_date": m.get("_release_date")})
         _flush()
         return passing_list, probed_list, {"provider": slug, "fetched": len(models), "probed": 0,
-                                           "passed": passed_here}
+                                           "passed": 0}
 
     _print(f"  fetched {len(models)} candidate(s)")
     cf = cfg.get("chat_filter")
@@ -1971,7 +1974,8 @@ def main():
         sys.exit(0)
 
     import yaml
-    write_config(all_passing, yaml, chosen=chosen, current_default=current_default, promote=promote)
+    write_config(all_passing, yaml, chosen=chosen, current_default=current_default, promote=promote,
+                 probed_all=probed_all)
     print("Done.")
 
 
