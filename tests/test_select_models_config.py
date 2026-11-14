@@ -1,4 +1,10 @@
-"""Tests for select-models config writing (no network)."""
+"""Tests for select-models config writing (no network).
+
+NOTE: config path state lives in ``selector.paths`` (the implementation reads
+it from there), so tests patch ``selector.paths.CONFIG_PATH`` — not the
+``select-models.py`` facade attribute.  Patching the facade attribute alone
+does NOT redirect the write and would clobber the real Hermes config.
+"""
 import os
 import sys
 import tempfile
@@ -11,6 +17,8 @@ _spec = importlib.util.spec_from_file_location("select_models", os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "select-models.py"))
 sm = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sm)
+
+from selector import paths as sel_paths
 
 
 def _passing():
@@ -25,7 +33,7 @@ def _passing():
 def test_write_config_writes_default_and_fallbacks(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text("model: {}\n", encoding="utf-8")
-    monkeypatch.setattr(sm, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(sel_paths, "CONFIG_PATH", cfg_path)
     sm.write_config(_passing(), yaml)
     data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     assert data["model"]["default"] == "primary/model:free"
@@ -38,7 +46,7 @@ def test_write_config_merges_existing_fallbacks(tmp_path, monkeypatch):
     cfg_path.write_text(
         "model:\n  default: old\nfallback_providers:\n  - {provider: custom, model: existing}\n",
         encoding="utf-8")
-    monkeypatch.setattr(sm, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(sel_paths, "CONFIG_PATH", cfg_path)
     sm.write_config(_passing(), yaml)
     data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     models = [e["model"] for e in data["fallback_providers"]]
@@ -50,6 +58,6 @@ def test_write_config_empty_is_noop(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
     original = "model:\n  default: keepme\n"
     cfg_path.write_text(original, encoding="utf-8")
-    monkeypatch.setattr(sm, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(sel_paths, "CONFIG_PATH", cfg_path)
     sm.write_config([], yaml)
     assert cfg_path.read_text(encoding="utf-8") == original

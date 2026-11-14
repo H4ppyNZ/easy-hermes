@@ -1,5 +1,15 @@
 # select-models.py — Central free-model selector
 
+> **Module layout (post-refactor):** `select-models.py` is a thin CLI entry
+> point; the implementation lives in the `selector/` package:
+> `paths.py` (runtime path state + constants — the single owner of
+> `CONFIG_PATH`/`CACHE_PATH`/... which `--hermes-home` rebinds),
+> `lists.py` (banned/boosted), `probe_cache.py` (probe-result cache),
+> `history.py` (promotion history + gate), `ranking.py` (release dates,
+> capabilities, ranking matrix), `probing.py` (provider fetch + chat probes),
+> `configio.py` (config load/merge-write), `runner.py` (`_process_provider`
+> + `main`). Patch path state on `selector.paths`, not on the facade.
+
 `select-models.py` is the multi-provider selector for easy-hermes. It discovers
 configured providers, fetches their free-tier model catalogs, probes candidates
 with a tiny chat completion, and writes the working default + fallback chain to
