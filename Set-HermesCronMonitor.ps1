@@ -71,4 +71,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 Remove-Item -LiteralPath $patchFile -ErrorAction SilentlyContinue
 
-Write-Output "Registered Hermes cron job '$Name' ($Schedule) deliver=$Deliver (id=$jobId)."
+Write-Output "Registered Hermes cron job '$Name' ($Schedule) deliver=$Deliver (id=$jobId)."

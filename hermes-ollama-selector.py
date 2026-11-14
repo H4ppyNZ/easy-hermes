@@ -103,8 +103,8 @@ def resolve_base_url(explicit=None):
         mc = cfg.get("model") or {}
         if isinstance(mc, dict) and mc.get("provider") in ("ollama", "custom") and mc.get("base_url"):
             return _strip_ollama_suffixes(str(mc["base_url"]))
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  Warning: base URL detection failed: {e}", file=sys.stderr)
     return "http://localhost:11434"
 
 
@@ -199,8 +199,8 @@ def probe_model(model_id, base_url, fast=False):
                     c2 = (m2.get("content") or "").strip()
                     if c2:
                         return (True, "passed after budget retry", True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  Warning: budget retry parse failed: {e}", file=sys.stderr)
             return (False, f"empty content (finish={finish})", retried)
         return (False, f"empty content (finish={finish})", retried)
     return (False, last, retried)

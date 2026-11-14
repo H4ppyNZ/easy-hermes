@@ -26,19 +26,11 @@ def _build_headers(api_key=None):
 
 
 def is_free_model(raw):
-    # TODO: provider-specific free rule
-    return True
+    raise NotImplementedError("Implement provider-specific free rule")
 
 
 def normalize_model(raw):
-    # TODO: map to normalized schema
-    return {
-        "id": raw.get("id"),
-        "display_name": raw.get("name"),
-        "context_window": raw.get("context_length"),
-        "rate_limits": None,
-        "notes": "template",
-    }
+    raise NotImplementedError("Map to normalized schema")
 
 
 def fetch_models(api_key=None, timeout=30, **kw):

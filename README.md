@@ -203,8 +203,9 @@ now reports 3.11.15.
 ## Status
 
 Phase 3 complete: `select-models.py` is the sole selector (cutover done), wired into
-`hermes-setup.ps1` and the nightly task; `poll_nous.py` ships; `hermes-model-selector.py`
-retired. `model.default` + `fallback_providers` are owned by `select-models.py`.
+`hermes-setup.ps1` and the nightly task; `poll_nous.py` ships. The old
+`hermes-model-selector.py` was deleted (see git history). `model.default` +
+`fallback_providers` are owned by `select-models.py`.
 
 Remaining open items: capability ranking weight; module-size refactor; performance/cost/
 observability/ux/accessibility/compliance review axes (not yet covered).
