@@ -27,6 +27,16 @@ if (-not (Test-Path -LiteralPath $selectorScript -PathType Leaf)) {
     throw "Selector script not found: $selectorScript"
 }
 
+# The nightly job runs the same selector as its step 2, so registering this
+# task as well means two full probes of the free tier per night and two chances
+# for the promotion gate to act on duplicate observations. Warn loudly rather
+# than silently creating a duplicate.
+$nightly = Get-ScheduledTask -TaskName 'Nightly Restart' -TaskPath '\Hermes\' -ErrorAction SilentlyContinue
+if ($nightly) {
+    Write-Warning "Scheduled task 'Nightly Restart' already runs select-models.py as its step 2."
+    Write-Warning "Registering '$taskName' will probe the free tier twice a night. Skip it unless you have a reason."
+}
+
 # Resolve the venv python (same logic as hermes-setup.ps1)
 $pythonPath = Join-Path $HermesHome 'hermes-agent\venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) {

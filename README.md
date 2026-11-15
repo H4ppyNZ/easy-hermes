@@ -78,12 +78,10 @@ not rewrite `config.yaml`.
 - `poll_gemini.py` — poll Google AI Studio (Gemini) free-tier models (best-effort / unverified)
 - `poll_ollama_cloud.py` — poll Ollama Cloud model catalog (best-effort / unverified)
 - `poll_novita.py` — poll Novita AI free models (best-effort/unverified); writes `out/novita.json`
-- `Set-ModelSelectorTask.ps1` — registers a daily Windows scheduled task for the selector (4 AM)
+- `Set-ModelSelectorTask.ps1` — registers a standalone selector task (4 AM). Not needed: the nightly restart job runs the selector as its step 2, so registering both probes the free tier twice a night
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
-- `Set-ReviewTask.ps1` — registers a daily Windows scheduled task that reviews the nightly run (6 AM)
 - `Set-HermesCronMonitor.ps1` — registers a Hermes cron job that monitors the NightlyRestartTask event log (7:20 AM)
-- `ReviewNightlyTask.ps1` — the review script (task health, event log, config, gateway)
 - `docs/installer-safety.md` — blast radius and safe re-run order for each step
 - `tools/` — operational helper scripts (fallback config) with README
 - `README.md` — this file

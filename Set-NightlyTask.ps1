@@ -23,13 +23,16 @@ if (-not (Test-Path -LiteralPath $taskScript -PathType Leaf)) {
     throw "Task script not found: $taskScript"
 }
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`""
+# The nightly job's HermesHome is forwarded explicitly. The default inside
+# NightlyRestartTask.ps1 is an absolute path, so omitting this would silently
+# target that path no matter what -HermesHome says here.
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$taskScript`" -HermesHome `"$HermesHome`""
 $trigger = New-ScheduledTaskTrigger -Daily -At $RunAt
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId $HermesUser -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $taskName -TaskPath '\Hermes\' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
-Write-Output "Scheduled task '$taskName' will run '$taskScript' daily at $RunAt as '$HermesUser'."
+Write-Output "Scheduled task '$taskName' will run '$taskScript' -HermesHome '$HermesHome' daily at $RunAt as '$HermesUser'."
 Write-Output "NOTE: an Interactive-principal task only fires when '$HermesUser' is logged on."
 Write-Output "      For unattended runs use -LogonType S4U with a stored credential."

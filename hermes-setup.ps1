@@ -157,13 +157,20 @@ function Get-SelectorScript {
     return $dest
 }
 
-# --- SchedulerOnly: just register the daily task and exit --------------------
+# --- SchedulerOnly: register the nightly job + monitor, then exit ------------
+# The nightly job is the single owner of the model-chain refresh (step 2), so
+# it is what -SchedulerOnly registers. The old standalone selector task is not
+# registered here: two tasks both running select-models.py would probe the free
+# tier twice a night and feed the promotion gate duplicate observations.
 if ($SchedulerOnly) {
-    $schedulerScript = Join-Path $PSScriptRoot 'Set-ModelSelectorTask.ps1'
-    if (-not (Test-Path -LiteralPath $schedulerScript -PathType Leaf)) {
-        throw "Scheduler registration script not found: $schedulerScript"
+    foreach ($scriptName in @("Set-NightlyTask.ps1", "Set-HermesCronMonitor.ps1")) {
+        $schedulerScript = Join-Path $PSScriptRoot $scriptName
+        if (-not (Test-Path -LiteralPath $schedulerScript -PathType Leaf)) {
+            Write-Warn "scheduler script not found, skipping: $schedulerScript"
+            continue
+        }
+        & $schedulerScript
     }
-    & $schedulerScript
     return
 }
 
@@ -582,7 +589,12 @@ if (-not $SkipDocs) {
 # --- Scheduler registration (yolo) -----------------------------------------
 if ($Yolo) {
     Write-Step "Registering scheduled tasks (yolo)"
-    foreach ($scriptName in @("Set-ModelSelectorTask.ps1", "Set-NightlyTask.ps1", "Set-ReviewTask.ps1", "Set-HermesCronMonitor.ps1")) {
+    # 'Nightly Restart' runs the selector as its step 2, so a standalone
+    # 'Hermes Model Selector' task would probe the free tier twice a night and
+    # let the promotion gate see the same data twice. Register the nightly job
+    # and its monitor only; Set-ModelSelectorTask.ps1 stays available for
+    # manual use (and warns if the nightly job is registered).
+    foreach ($scriptName in @("Set-NightlyTask.ps1", "Set-HermesCronMonitor.ps1")) {
         $scriptPath = Join-Path $PSScriptRoot $scriptName
         if (Test-Path -LiteralPath $scriptPath -PathType Leaf) {
             try {
