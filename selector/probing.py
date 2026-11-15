@@ -287,7 +287,7 @@ def _gemini_probe(model_id, api_key, base_url, timeout=15):
 
 def _ollama_local_probe(model_id, base_url, timeout=60):
     try:
-        import poll_ollama_local as _pol
+        from pollers import poll_ollama_local as _pol
         ok, note, retried = _pol.probe_model(model_id, _pol.openai_base(base_url), fast=False)
         return bool(ok), str(note), bool(retried)
     except Exception as e:
@@ -312,7 +312,7 @@ def probe(slug, cfg, model_id, api_key, timeout=None, reasoning=None):
         return _gemini_probe(model_id, api_key, base, timeout=t)
     if kind == "ollama-local":
         try:
-            import poll_ollama_local as _pol
+            from pollers import poll_ollama_local as _pol
             bu = _pol.resolve_base_url()
         except Exception:
             bu = "http://localhost:11434"

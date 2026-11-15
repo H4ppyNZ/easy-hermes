@@ -46,11 +46,13 @@ param(
     [switch]$SkipInstall,
     [switch]$SkipDocs,
     [switch]$SelectorOnly,
-    [switch]$SchedulerOnly
+    [switch]$SchedulerOnly,
+    [switch]$Update,
+    [switch]$NoUpdate
 )
 
 $ErrorActionPreference = 'Stop'
-$ScriptVersion = '3'
+$ScriptVersion = '4'
 
 # --- helpers ---------------------------------------------------------------
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
@@ -116,46 +118,232 @@ function Invoke-Native {
 # HERMES_HOME wins; otherwise the Windows default.
 $HermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA 'hermes' }
 
-# Where select-models.py is fetched from when it is not sitting next to
-# this script. Set this to your fork's raw URL once the repo is public -- pin
-# the branch, because a moving 'main' can change under people mid-install.
-$SelectorUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/select-models.py'
+# --- Where the scripts live, and how they get updated -----------------------
+# Two install shapes, and they update differently:
+#   * clone     -- a git work tree on disk. Authoritative; updated with git.
+#   * one-liner -- 'irm | iex' / a scriptblock cast. $PSScriptRoot is EMPTY in
+#                  this mode, so there is no directory to read sibling files
+#                  from; the installer syncs the file set from the repo into a
+#                  stable install dir instead.
+# The previous code assumed a sibling file always existed and preferred it over
+# a fresh download, so a stale copy was used forever.
+$RepoOwner   = 'H4ppyNZ'
+$RepoName    = 'easy-hermes'
+$RepoBranch  = 'main'
+# EASY_HERMES_RAW_BASE overrides the download root (used by the test suite to
+# point at a local mirror; not something a user needs to set).
+$RepoRawBase = if ($env:EASY_HERMES_RAW_BASE) { $env:EASY_HERMES_RAW_BASE } else {
+    "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoBranch" }
+$InstallDir  = Join-Path $HermesHome 'easy-hermes'
+$NoUpdateMarker = Join-Path $InstallDir 'NOUPDATE'
 
+function Resolve-ScriptBaseDir {
+    # A git work tree next to this script is the user's own checkout: use it
+    # as-is (Invoke-Update fast-forwards it). Anything else is an install, and
+    # the managed copy under $InstallDir is used.
+    if ($PSScriptRoot) {
+        if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git')) { return $PSScriptRoot }
+    }
+    return $InstallDir
+}
+
+function Invoke-Git {
+    # git writes progress to stderr; under ErrorActionPreference=Stop that is a
+    # terminating NativeCommandError. Relax the preference, judge by exit code.
+    param([string[]]$GitArgs)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & git @GitArgs 2>&1 | Out-String
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    return [pscustomobject]@{ Output = $out; ExitCode = $code }
+}
+
+function Test-UpdateDeclined {
+    if ($env:EASY_HERMES_NO_UPDATE -eq '1') { return $true }
+    if (Test-Path -LiteralPath $NoUpdateMarker -PathType Leaf) { return $true }
+    return $false
+}
+
+function Sync-InstallFiles {
+    # Fetch MANIFEST.json, then every file it lists, into $InstallDir. Files are
+    # compared by SHA256 rather than re-read as text: select-models.py contains
+    # non-ASCII box characters that PowerShell 5.1 would decode as ANSI and
+    # corrupt.
+    param([string]$Dir)
+
+    $manifestUrl = "$RepoRawBase/MANIFEST.json"
+    $tmpManifest = Join-Path $env:TEMP ("easy-hermes-manifest-" + [guid]::NewGuid().ToString('N') + ".json")
+    try {
+        try {
+            Invoke-WebRequest -Uri $manifestUrl -OutFile $tmpManifest -UseBasicParsing -ErrorAction Stop
+            $manifest = Get-Content -LiteralPath $tmpManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            throw "Could not fetch $manifestUrl : $($_.Exception.Message)"
+        }
+
+        $relFiles = @($manifest.python) + @($manifest.powershell) + @($manifest.data)
+        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+
+        $fetched = 0
+        $changed = 0
+        foreach ($rel in $relFiles) {
+            $rel = $rel.Replace('/', [char]92)
+            $dest = Join-Path $Dir $rel
+            $parent = Split-Path $dest -Parent
+            if (-not (Test-Path -LiteralPath $parent)) {
+                New-Item -ItemType Directory -Path $parent -Force | Out-Null
+            }
+            $url = "$RepoRawBase/" + $rel.Replace([char]92, '/')
+            $tmpFile = "$dest.__sync__"
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $tmpFile -UseBasicParsing -ErrorAction Stop
+            } catch {
+                Write-Warn "fetch failed, keeping existing copy: $url ($($_.Exception.Message))"
+                Remove-Item -LiteralPath $tmpFile -ErrorAction SilentlyContinue
+                continue
+            }
+            $same = $false
+            if (Test-Path -LiteralPath $dest -PathType Leaf) {
+                $h1 = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash
+                $h2 = (Get-FileHash -LiteralPath $tmpFile -Algorithm SHA256).Hash
+                $same = ($h1 -eq $h2)
+            }
+            if ($same) {
+                Remove-Item -LiteralPath $tmpFile -ErrorAction SilentlyContinue
+            } else {
+                Move-Item -LiteralPath $tmpFile -Destination $dest -Force
+                $changed++
+            }
+            $fetched++
+        }
+        [System.IO.File]::WriteAllText((Join-Path $Dir 'VERSION'), "$($manifest.version)`n")
+        Write-Ok "synced $fetched file(s) into $Dir ($changed changed), version $($manifest.version)"
+    } finally {
+        Remove-Item -LiteralPath $tmpManifest -ErrorAction SilentlyContinue
+    }
+}
+
+function Update-RepoClone {
+    param([string]$Dir)
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Warn "git not found; cannot update $Dir"
+        return $false
+    }
+    $r = Invoke-Git @('-C', $Dir, 'status', '--porcelain')
+    if ($r.ExitCode -ne 0) { Write-Warn "git status failed in $Dir; skipping update"; return $false }
+    if ($r.Output.Trim()) {
+        Write-Warn "local changes in $Dir -- skipping update (commit or stash them first)"
+        return $false
+    }
+    $upstream = Invoke-Git @('-C', $Dir, 'rev-parse', '--abbrev-ref', '@{u}')
+    if ($upstream.ExitCode -ne 0 -or -not $upstream.Output.Trim()) {
+        Write-Warn "no upstream tracking branch for $Dir; skipping update"
+        return $false
+    }
+    $r = Invoke-Git @('-C', $Dir, 'fetch', '--quiet')
+    if ($r.ExitCode -ne 0) { Write-Warn "git fetch failed for $Dir; skipping update"; return $false }
+
+    $behind = (Invoke-Git @('-C', $Dir, 'rev-list', '--count', 'HEAD..@{u}')).Output
+    $count = 0
+    [void][int]::TryParse((($behind -replace '\D', '').Trim()), [ref]$count)
+    if ($count -eq 0) {
+        Write-Ok "$Dir is already up to date"
+        return $true
+    }
+
+    $before = (Invoke-Git @('-C', $Dir, 'rev-parse', 'HEAD')).Output.Trim()
+    $r = Invoke-Git @('-C', $Dir, 'merge', '--ff-only', '@{u}')
+    if ($r.ExitCode -ne 0) {
+        Write-Warn "git merge --ff-only failed in $Dir; leaving it as it was"
+        return $false
+    }
+    $after = (Invoke-Git @('-C', $Dir, 'rev-parse', 'HEAD')).Output.Trim()
+    Write-Ok ("updated {0} -> {1}" -f $before.Substring(0, 7), $after.Substring(0, 7))
+    $log = (Invoke-Git @('-C', $Dir, 'log', '--oneline', "$before..$after")).Output
+    foreach ($line in ($log -split "`n")) {
+        if ($line.Trim()) { Write-Info "  $($line.Trim())" }
+    }
+    return $true
+}
+
+function Invoke-Update {
+    <#
+    Auto-update policy:
+      -Yolo or -Update   -> update
+      -NoUpdate          -> never update, and persist that choice
+      marker / env var   -> never update (sticky opt-out)
+      anything else      -> no update
+    The opt-out is sticky so you do not have to re-pass a switch every run.
+    #>
+    if ($NoUpdate) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+        [System.IO.File]::WriteAllText($NoUpdateMarker, "auto-update disabled by -NoUpdate $(Get-Date -Format o)`n")
+        Write-Info "auto-update disabled (marker: $NoUpdateMarker). Delete it, or pass -Update, to re-enable."
+        return
+    }
+    if (Test-UpdateDeclined) {
+        Write-Info "auto-update is off (marker file or EASY_HERMES_NO_UPDATE=1); skipping."
+        return
+    }
+    if (-not ($Yolo -or $Update)) {
+        Write-Info "auto-update: not enabled for this run (use -Yolo or -Update)."
+        return
+    }
+    if ($ScriptBaseDir -eq $InstallDir) {
+        Write-Step "Syncing installer files"
+        Sync-InstallFiles -Dir $InstallDir
+    } else {
+        Write-Step "Updating checkout"
+        Update-RepoClone -Dir $ScriptBaseDir
+    }
+}
+
+function Register-ScheduledScripts {
+    <#
+    One owner of the model chain: NightlyRestartTask.ps1 runs the selector as
+    its step 2. The old standalone 'Hermes Model Selector' task is not
+    registered -- two tasks probing the free tier would feed the promotion gate
+    duplicate observations. The Hermes cron monitor replaced the separate
+    ReviewNightlyTask.ps1 health check.
+    #>
+    $registrations = @(
+        @{ Script = 'Set-NightlyTask.ps1';        Args = @('-HermesHome', $HermesHome) },
+        @{ Script = 'Set-HermesCronMonitor.ps1'; Args = @() }
+    )
+    foreach ($reg in $registrations) {
+        $scriptPath = Join-Path $ScriptBaseDir $reg.Script
+        if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+            Write-Warn "skipping missing script: $scriptPath"
+            continue
+        }
+        try {
+            & $scriptPath @($reg.Args)
+            Write-Ok "registered: $($reg.Script)"
+        } catch {
+            Write-Warn "failed to register $($reg.Script): $($_.Exception.Message)"
+        }
+    }
+}
 
 function Get-SelectorScript {
-    # Resolve the selector to a local path, preferring the copy next to this
-    # script (a repo clone or a downloaded zip: both files arrive together).
-    # Falls back to $SelectorUrl for the 'irm ... | iex' one-liner case, where
-    # nothing is on disk. Always returns a path that exists and parses.
-    param([string]$FallbackUrl = $SelectorUrl)
-
-    $sibling = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'select-models.py' } else { $null }
-    if ($sibling -and (Test-Path -LiteralPath $sibling)) {
-        Write-Ok "selector: $sibling"
-        return $sibling
+    $path = Join-Path $ScriptBaseDir 'select-models.py'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "select-models.py not found in '$ScriptBaseDir'. Re-run without -NoUpdate so the installer can sync it from $RepoRawBase."
     }
-
-    if (-not $FallbackUrl -or $FallbackUrl -like '*<you>*') {
-        throw "select-models.py not found next to this script, and `$SelectorUrl is still the placeholder. Put both files in the same folder, or set `$SelectorUrl to your repo's raw URL."
-    }
-
-    $dest = Join-Path $env:TEMP 'select-models.py'
-    Write-Info "Fetching selector from $FallbackUrl"
-    try {
-        Invoke-WebRequest -Uri $FallbackUrl -OutFile $dest -UseBasicParsing
-    } catch {
-        throw "Could not download the selector from ${FallbackUrl}: $($_.Exception.Message)"
-    }
-    if (-not (Test-Path -LiteralPath $dest)) { throw "Selector download wrote nothing to $dest" }
-    # A 404 page or a proxy interstitial is not a script: require the one
-    # function the installer depends on to be present before trusting it.
-    $probe = Select-String -LiteralPath $dest -Pattern 'def write_config' -SimpleMatch -Quiet
-    if (-not $probe) {
-        throw "Downloaded file at $dest is not the model selector (no choose_default). Check `$SelectorUrl."
-    }
-    Write-Ok "selector downloaded to $dest"
-    return $dest
+    Write-Ok "selector: $path"
+    return $path
 }
+
+# Resolve once, before any block that needs a script path. An unguarded
+# 'Join-Path $PSScriptRoot ...' throws under the one-liner because
+# $PSScriptRoot is empty there.
+$ScriptBaseDir = Resolve-ScriptBaseDir
+Invoke-Update
 
 # --- SchedulerOnly: register the nightly job + monitor, then exit ------------
 # The nightly job is the single owner of the model-chain refresh (step 2), so
@@ -163,14 +351,7 @@ function Get-SelectorScript {
 # registered here: two tasks both running select-models.py would probe the free
 # tier twice a night and feed the promotion gate duplicate observations.
 if ($SchedulerOnly) {
-    foreach ($scriptName in @("Set-NightlyTask.ps1", "Set-HermesCronMonitor.ps1")) {
-        $schedulerScript = Join-Path $PSScriptRoot $scriptName
-        if (-not (Test-Path -LiteralPath $schedulerScript -PathType Leaf)) {
-            Write-Warn "scheduler script not found, skipping: $schedulerScript"
-            continue
-        }
-        & $schedulerScript
-    }
+    Register-ScheduledScripts
     return
 }
 
@@ -298,17 +479,10 @@ if ($Yolo) {
 # Offer to configure provider keys (NVIDIA/Google/Novita/Ollama/OpenRouter) so
 # the selector can probe those providers. Keys are stored in Windows user env.
 if (-not $SchedulerOnly -and -not $SelectorOnly) {
-    $envScript = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'Set-EnvKeys.ps1' } else { $null }
-    if (-not ($envScript -and (Test-Path -LiteralPath $envScript))) {
-        $envUrl = 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/Set-EnvKeys.ps1'
-        $envDest = Join-Path $env:TEMP 'Set-EnvKeys.ps1'
-        try {
-            Invoke-WebRequest -Uri $envUrl -OutFile $envDest -UseBasicParsing
-            $envScript = $envDest
-        } catch {
-            Write-Warn "Could not fetch Set-EnvKeys.ps1: $($_.Exception.Message)"
-            $envScript = $null
-        }
+    $envScript = Join-Path $ScriptBaseDir 'Set-EnvKeys.ps1'
+    if (-not (Test-Path -LiteralPath $envScript -PathType Leaf)) {
+        Write-Warn "Set-EnvKeys.ps1 not found in $ScriptBaseDir; skipping provider keys"
+        $envScript = $null
     }
     if ($envScript) {
         Write-Step "Provider API keys (optional)"
@@ -589,24 +763,7 @@ if (-not $SkipDocs) {
 # --- Scheduler registration (yolo) -----------------------------------------
 if ($Yolo) {
     Write-Step "Registering scheduled tasks (yolo)"
-    # 'Nightly Restart' runs the selector as its step 2, so a standalone
-    # 'Hermes Model Selector' task would probe the free tier twice a night and
-    # let the promotion gate see the same data twice. Register the nightly job
-    # and its monitor only; Set-ModelSelectorTask.ps1 stays available for
-    # manual use (and warns if the nightly job is registered).
-    foreach ($scriptName in @("Set-NightlyTask.ps1", "Set-HermesCronMonitor.ps1")) {
-        $scriptPath = Join-Path $PSScriptRoot $scriptName
-        if (Test-Path -LiteralPath $scriptPath -PathType Leaf) {
-            try {
-                & $scriptPath
-                Write-Ok "registered: $scriptName"
-            } catch {
-                Write-Warn "failed to register ${scriptName}: $($_.Exception.Message)"
-            }
-        } else {
-            Write-Info "skipping missing $scriptName"
-        }
-    }
+    Register-ScheduledScripts
 }
 
 Write-Step "Done. Next: hermes   (or: hermes chat -q `"hello`")"

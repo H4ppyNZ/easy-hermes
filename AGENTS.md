@@ -13,13 +13,25 @@ PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (69, pure, no 
 | Script | Purpose | Key params |
 |---|---|---|
 | `hermes-setup.ps1` | Installer + selector entry point | `-Yolo -Model -SkipInstall -SkipDocs -SelectorOnly -SchedulerOnly` |
-| `select-models.py` (py) | Live probe + promotion gate | `--dry-run --full --refresh --providers --set-default` |
+| `select-models.py` (py) | Live probe + promotion gate (CLI facade; impl in `selector/`) | `--dry-run --full --refresh --providers --set-default` |
 | `Set-EnvKeys.ps1` | Writes provider keys to User env (secure prompt) | (none) |
 | `Set-ModelSelectorTask.ps1` | Registers 4 AM selector task (manual use; nightly job already runs the selector) | `-RunAt -HermesHome` |
 | `Set-NightlyTask.ps1` | Registers 3 AM nightly task | `-RunAt -HermesHome` |
 | `Set-HermesCronMonitor.ps1` | Registers 7:20 AM Hermes cron monitor | `-Schedule -Deliver` |
 | `NightlyRestartTask.ps1` | nightly: update → selector → gateway restart → extras | `-SkipUpdate -DryRun -ExtraTasks` |
 | `Run-ModelSelectorTask.ps1` | Generated wrapper that runs selector (PYTHONUTF8 set; gitignored) | (auto) |
+| `MANIFEST.json` / `VERSION` | File set the installer syncs; regenerate with `python tools/gen_manifest.py` | — |
+
+## Install + auto-update
+
+`$ScriptBaseDir` is resolved once: a git work tree next to `hermes-setup.ps1` is a *clone*
+(git pull --ff-only, dirty tree skipped); anything else is a *one-liner* install, where
+`$PSScriptRoot` is EMPTY and files are synced from `MANIFEST.json` into
+`$HermesHome\easy-hermes`. Never `Join-Path $PSScriptRoot ...` without guarding
+`if ($PSScriptRoot)` -- it throws `ParameterBindingValidationException` under the
+scriptblock one-liner. Auto-update: ON for `-Yolo`/`-Update`, off otherwise; sticky opt-out
+via `-NoUpdate` (marker `$HermesHome\easy-hermes\NOUPDATE`) or `EASY_HERMES_NO_UPDATE=1`.
+`EASY_HERMES_RAW_BASE` overrides the download root (tests point it at a local mirror).
 
 All scheduled tasks live under `\Hermes\` task path (root `\` rejects spaces on this host) and run as Interactive principal (only fire when user logged on).
 

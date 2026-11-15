@@ -33,7 +33,7 @@ from selector.paths import load_cache, load_last_selection, save_cache, save_las
 def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned, cache, cache_lock, print_lock):
     if slug == "ollama-local":
         try:
-            import poll_ollama_local as _pol
+            from pollers import poll_ollama_local as _pol
             cfg = dict(cfg)
             cfg["probe_base_url"] = _pol.openai_base(_pol.resolve_base_url())
         except Exception:

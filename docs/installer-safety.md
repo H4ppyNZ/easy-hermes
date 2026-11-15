@@ -2,14 +2,16 @@
 
 Repo: `C:\Users\mattw\Documents\repos\easy-hermes` (git, `github.com/H4ppyNZ/easy-hermes`).
 Files: `hermes-setup.ps1` (installer; params `-Yolo`, `-Model`, `-SkipInstall`, `-SkipDocs`,
-`-SelectorOnly`, `-SchedulerOnly`), `select-models.py` (free-tier probe + promotion
-gate), `Set-ModelSelectorTask.ps1` (registers a daily task). The README one-liners use the
-scriptblock cast and pull `main`, so a push is live for testers at once.
+`-SelectorOnly`, `-SchedulerOnly`, `-Update`, `-NoUpdate`), `select-models.py` (free-tier
+probe + promotion gate, facade over `selector/`), `MANIFEST.json` (the file set the
+installer syncs). The README one-liners use the scriptblock cast and pull `main`, so a push
+is live for testers at once.
 
 ## Re-running `hermes-setup.ps1` -- worst case per step
 
 | Step | Runs when | What it can do |
 |---|---|---|
+| auto-update | `-Yolo` or `-Update` | clone: `git fetch` + `merge --ff-only` (dirty tree skipped); one-liner: re-syncs `MANIFEST.json` files into `%LOCALAPPDATA%\hermes\easy-hermes` |
 | install | default (not `-SkipInstall`) | downloads and runs the official `install.ps1`; **upgrades an existing Hermes checkout** |
 | auth | always | no-op when already authenticated (`hermes auth list` matches the provider) |
 | model | `-Model` given | `hermes config set model.default` |
@@ -18,7 +20,7 @@ scriptblock cast and pull `main`, so a push is live for testers at once.
 | verify | always | `hermes doctor`, read-only |
 
 **The install step is the real risk, and it is not data loss.** `install.ps1` treats an
-`install.ps1` treats an existing `$InstallDir` containing `.git` as "update me": fetch, then
+existing `$InstallDir` containing `.git` as "update me": fetch, then
 `git reset --hard origin/<branch>` -- or move the tree aside to
 `$InstallDir.broken-<yyyyMMdd-HHmmss>` when the clone has no commits. A plain re-run
 silently upgrades Hermes to the latest `main`, refreshes the dependency environment
@@ -27,8 +29,7 @@ under the user, and stashes uncommitted changes before any reset.
 **The selector merges into config.** `write_config()` in `select-models.py` MERGES new
 fallback entries into the existing `fallback_providers` list (dedup by provider+model);
 `model.default` may move via the promotion gate. If nothing passes probing it returns early
-and leaves the config untouched. If nothing
-passes probing it returns early and leaves the config untouched. Writes go through ruamel's
+and leaves the config untouched. Writes go through ruamel's
 `atomic_roundtrip_yaml_save`, so there is no half-written-config risk; the values churn, the
 file never corrupts.
 
@@ -41,6 +42,23 @@ displaced by that path.
 
 Probe results vary run to run, so a re-run is not a no-op even when the gate keeps
 `model.default`: the chain and the overrides still churn.
+
+## Auto-update blast radius
+
+Two shapes, resolved by `Resolve-ScriptBaseDir`:
+
+- **clone** -- a git work tree sits next to `hermes-setup.ps1`. `-Yolo` fast-forwards it.
+  A dirty tree, a missing upstream, or a failed fetch/merge all **skip with a warning**;
+  local commits and uncommitted work are never rewritten. The commits pulled are printed.
+- **one-liner** -- `$PSScriptRoot` is EMPTY under the scriptblock cast, so there is no
+  sibling to read. `MANIFEST.json` is fetched and every file it lists is downloaded into
+  `%LOCALAPPDATA%\hermes\easy-hermes`, compared by SHA256 (byte-safe for the non-ASCII in
+  `select-models.py`), and moved into place only when different. A failed fetch keeps the
+  existing copy.
+
+Opt-out is sticky: `-NoUpdate` writes `%LOCALAPPDATA%\hermes\easy-hermes\NOUPDATE`, and
+`EASY_HERMES_NO_UPDATE=1` is honoured too; either suppresses the update even under `-Yolo`.
+Delete the marker or pass `-Update` to re-enable.
 
 ## Safe order if a re-run is wanted
 

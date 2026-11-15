@@ -1,0 +1,34 @@
+{
+  "version": 4,
+  "entry": "select-models.py",
+  "note": "Files hermes-setup.ps1 syncs into the install dir for the one-liner path, and uses as the update set for clone installs. Regenerate with: python tools/gen_manifest.py",
+  "python": [
+    "atomic_io.py",
+    "chain_delta.py",
+    "pollers/__init__.py",
+    "pollers/poll_ollama_local.py",
+    "providers.py",
+    "release_dates.py",
+    "select-models.py",
+    "selector/__init__.py",
+    "selector/configio.py",
+    "selector/history.py",
+    "selector/lists.py",
+    "selector/paths.py",
+    "selector/probe_cache.py",
+    "selector/probing.py",
+    "selector/ranking.py",
+    "selector/runner.py"
+  ],
+  "powershell": [
+    "hermes-setup.ps1",
+    "Set-NightlyTask.ps1",
+    "NightlyRestartTask.ps1",
+    "Set-HermesCronMonitor.ps1",
+    "Set-ModelSelectorTask.ps1",
+    "Set-EnvKeys.ps1"
+  ],
+  "data": [
+    "cron/nightly-monitor-prompt.txt"
+  ]
+}
