@@ -51,14 +51,10 @@ Applied in this pass (uncommitted, on `main`):
   (6 tests; suite now 87).
 
 Still open under this item:
-- `Set-ModelSelectorTask.ps1` and `Run-ModelSelectorTask.ps1` are retired/dead but the files
-  are still shipped and still warn about double probing. Decide: delete the scripts + their
-  MANIFEST entry, or keep them documented as manual-only.
-- `tools/Configure-FreeModelFallbacks.ps1` is superseded by `select-models.py` and is the
-  only LF-line-ending file in the tree (all others CRLF). Either convert to CRLF or move it
-  to a clearly labelled legacy/ directory.
-- Stale references to deleted `Set-ReviewTask.ps1` / `ReviewNightlyTask.ps1` in
-  `hermes-setup.ps1` comments.
+- Resolved 2026-11-16: `Set-ModelSelectorTask.ps1` deleted, with its `MANIFEST.json`
+  entry, the `AGENTS.md`/`README.md`/`docs/ollama-selector.md` rows and the generated
+  `Run-ModelSelectorTask.ps1` `.gitignore` entry; `tools/Configure-FreeModelFallbacks.ps1`
+  deleted; the stale `ReviewNightlyTask.ps1` comment in `hermes-setup.ps1` reworded.
 - Six stale work-tree clones under the repos dir on feature branches already merged into
   main. Delete or archive.
 - "Omega" is undefined in this repo. If it means a named review/tidy pass (capability,

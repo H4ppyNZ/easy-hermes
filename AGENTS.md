@@ -15,11 +15,9 @@ PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (87, pure, no 
 | `hermes-setup.ps1` | Installer + selector entry point | `-Yolo -Model -SkipInstall -SkipDocs -SelectorOnly -SchedulerOnly` |
 | `select-models.py` (py) | Live probe + promotion gate (CLI facade; impl in `selector/`) | `--dry-run --full --refresh --providers --set-default` |
 | `Set-EnvKeys.ps1` | Writes provider keys to User env (secure prompt) | (none) |
-| `Set-ModelSelectorTask.ps1` | Registers 4 AM selector task (manual use; nightly job already runs the selector) | `-RunAt -HermesHome` |
 | `Set-NightlyTask.ps1` | Registers 3 AM nightly task | `-RunAt -HermesHome` |
 | `Set-HermesCronMonitor.ps1` | Registers 7:20 AM Hermes cron monitor | `-Schedule -Deliver` |
 | `NightlyRestartTask.ps1` | nightly: update → selector → gateway restart → extras | `-SkipUpdate -DryRun -ExtraTasks` |
-| `Run-ModelSelectorTask.ps1` | Generated wrapper that runs selector (PYTHONUTF8 set; gitignored) | (auto) |
 | `MANIFEST.json` / `VERSION` | File set the installer syncs; regenerate with `python tools/gen_manifest.py` | — |
 
 ## Install + auto-update

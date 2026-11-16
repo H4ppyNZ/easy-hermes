@@ -334,10 +334,9 @@ function Invoke-Update {
 function Register-ScheduledScripts {
     <#
     One owner of the model chain: NightlyRestartTask.ps1 runs the selector as
-    its step 2. The old standalone 'Hermes Model Selector' task is not
-    registered -- two tasks probing the free tier would feed the promotion gate
-    duplicate observations. The Hermes cron monitor replaced the separate
-    ReviewNightlyTask.ps1 health check.
+    its step 2. A standalone selector task is deliberately not registered -- two
+    tasks probing the free tier would feed the promotion gate duplicate
+    observations. The Hermes cron monitor covers the nightly health check.
     #>
     $registrations = @(
         @{ Script = 'Set-NightlyTask.ps1';        Args = @('-HermesHome', $HermesHome) },

@@ -38,7 +38,6 @@ POWERSHELL = [
     "Set-NightlyTask.ps1",
     "NightlyRestartTask.ps1",
     "Set-HermesCronMonitor.ps1",
-    "Set-ModelSelectorTask.ps1",
     "Set-EnvKeys.ps1",
 ]
 DATA = ["cron/nightly-monitor-prompt.txt"]

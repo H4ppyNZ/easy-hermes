@@ -1,7 +1,7 @@
 # Registers a daily scheduled task that runs the NightlyRestartTask (hermes update,
-# model selector, gateway restart, extra tasks). Follows the same pattern as
-# Set-ModelSelectorTask.ps1: runs as the same user that owns the Hermes gateway
-# (Interactive), NOT as SYSTEM, because Hermes lives in that user's profile.
+# model selector, gateway restart, extra tasks). Runs as the same user that
+# owns the Hermes gateway (Interactive), NOT as SYSTEM, because Hermes lives in
+# that user's profile.
 #
 # Usage:
 #   .\Set-NightlyTask.ps1

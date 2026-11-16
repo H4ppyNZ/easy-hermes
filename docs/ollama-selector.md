@@ -40,9 +40,8 @@ Probe results are cached at `<hermes-home>/cache/ollama_model_cache.json`.
     (default) so local models are appended to the same chain.
   - Expose a `-Local` / `-Ollama` switch in `hermes-setup.ps1` that also passes
     `--set-default` for users who want a fully-local primary.
-  - Register a scheduled task (mirror `Set-ModelSelectorTask.ps1`) if you want
-    the local chain refreshed nightly; Ollama models change rarely, so on-demand
-    is usually enough.
+  - Refresh the local chain on demand; Ollama models change rarely, so a
+    scheduled task is usually unnecessary.
 
 ## Caveats
 
