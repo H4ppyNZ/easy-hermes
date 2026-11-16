@@ -445,7 +445,13 @@ function Invoke-ExtraTasks {
     }
 }
 
-$otherTasks = Resolve-ExtraTasks -Data $configData -ConfigDir $extraTasksDir -ExtraTasks $ExtraTasks
+# @( ... ) is load-bearing: Resolve-ExtraTasks returns $null (not @()) when there are
+# no tasks, because a bare `return $tasks` on an empty array emits zero pipeline
+# items. Without the wrap, @($null).Count is 1, so step 4 "runs" one phantom task
+# whose Command and Path are both null, and `& $task.Path` throws -- failing the
+# whole nightly run. Verified: unwrapped -> "Task 1 () failed: The expression
+# after '&' in a pipeline element produced an object that was not valid."
+$otherTasks = @(Resolve-ExtraTasks -Data $configData -ConfigDir $extraTasksDir -ExtraTasks $ExtraTasks)
 Invoke-ExtraTasks -Tasks $otherTasks
 
 if ($script:HadError) {

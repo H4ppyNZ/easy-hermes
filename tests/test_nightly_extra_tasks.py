@@ -96,6 +96,19 @@ $script:msgs = @()
 Invoke-ExtraTasks -Tasks (Resolve-ExtraTasks -Data $loaded -ConfigDir $Work)
 $out.cfgMessages = @($script:msgs)
 
+# Regression: no config and no -ExtraTasks must yield ZERO tasks. A bare
+# `return $tasks` on an empty array emits nothing, the caller captures $null,
+# @($null).Count is 1, and step 4 "runs" a phantom task whose null Path makes
+# `& $task.Path` throw -- failing the whole nightly run.
+$empty = @(Resolve-ExtraTasks -Data $null -ConfigDir $Work -ExtraTasks @())
+$out.emptyNull = ($null -eq $empty)
+$out.emptyCount = @($empty).Count
+$script:msgs = @()
+$script:HadError = $false
+Invoke-ExtraTasks -Tasks $empty
+$out.emptyHadError = [bool]$script:HadError
+$out.emptyMessages = @($script:msgs)
+
 $out | ConvertTo-Json -Depth 6 -Compress
 """
 
@@ -178,6 +191,13 @@ def test_extra_task_functions_behave(tmp_path):
 
     # A dot-sourced config file: the entry sees the file's own $bedrock.
     assert out["cfgCount"] == 1
+    # The no-config case: zero tasks, no phantom entry, no error.
+    assert out["emptyNull"] is False
+    assert out["emptyCount"] == 0
+    assert out["emptyHadError"] is False
+    _nl = chr(10)
+    assert "Running 0 additional task(s)" in _nl.join(out["emptyMessages"])
+    assert "failed" not in _nl.join(out["emptyMessages"])
     cfg_joined = "\n".join(out["cfgMessages"])
     assert "closure" in cfg_joined
     assert "bedrock ran" in cfg_joined
