@@ -151,6 +151,82 @@ def test_no_unguarded_psscriptroot_join_path():
             f"unguarded Join-Path $PSScriptRoot at line {i + 1}: {line}"
 
 
+def test_manifest_covers_every_provider_registry_module(tmp_path):
+    """providers.py names its pollers as strings, so the import walk misses them.
+
+    selector/probing.py does importlib.import_module(cfg["module"]), so the
+    registry -- not an import statement -- is what decides which pollers must be
+    on disk. The first cut of MANIFEST.json had exactly this hole: a one-liner
+    install got a selector that could only poll local Ollama, and probing.py
+    swallows the ImportError into an empty model list, so nothing failed loudly.
+    """
+    import ast
+
+    src = open(os.path.join(REPO, "providers.py"), encoding="utf-8").read()
+    mods = set()
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, val in zip(node.keys, node.values):
+            if (isinstance(key, ast.Constant) and key.value == "module"
+                    and isinstance(val, ast.Constant) and isinstance(val.value, str)):
+                mods.add(val.value)
+    assert mods, "no 'module' entries found in providers.py -- registry shape changed"
+
+    listed = set(_all_files())
+    missing = sorted(m for m in mods if m.replace(".", "/") + ".py" not in listed)
+    assert not missing, f"providers.py pollers missing from MANIFEST.json: {missing}"
+
+    # ...and they must actually survive the copy the one-liner path performs.
+    dest = tmp_path / "install"
+    dest.mkdir()
+    _copy_manifest_files(str(dest))
+    absent = [m for m in sorted(mods)
+              if not os.path.exists(os.path.join(str(dest), m.replace(".", os.sep) + ".py"))]
+    assert not absent, f"registry pollers not copied into the install dir: {absent}"
+
+    # Importing is the real proof. A membership check on the manifest passes even
+    # when a poller's own dependencies are missing, which is exactly how
+    # "no module named 'pollers.poll_openrouter'" turned into
+    # "no module named 'safe_url'" the moment the poller was added.
+    code = (
+        "import importlib, json, sys\n"
+        "bad = {}\n"
+        "for m in json.loads(sys.argv[1]):\n"
+        "    try:\n"
+        "        importlib.import_module(m)\n"
+        "    except BaseException as e:\n"
+        "        bad[m] = f'{type(e).__name__}: {e}'\n"
+        "print(json.dumps(bad))\n"
+    )
+    r = subprocess.run(
+        [_python(), "-c", code, json.dumps(sorted(mods))],
+        cwd=str(dest), capture_output=True, text=True, timeout=120,
+        env={**os.environ, "PYTHONUTF8": "1"},
+    )
+    assert r.returncode == 0, r.stderr
+    bad = json.loads(r.stdout.strip().splitlines()[-1])
+    assert not bad, f"registry pollers do not import from the one-liner file set: {bad}"
+
+
+def test_installer_survives_a_failed_manifest_fetch_once_installed():
+    """Offline must not kill a re-run on a machine that is already installed.
+
+    -SchedulerOnly's whole job is "the files are already here, just register the
+    tasks", but the manifest fetch used to be unconditional and threw, so it
+    needed the network anyway. A first install still fails loudly -- there is
+    nothing to fall back on.
+    """
+    src = open(SETUP_PS1, encoding="utf-8").read()
+    start = src.index("function Sync-InstallFiles {")
+    end = src.index("\n}\n", start) + len("\n}\n")
+    fn = src[start:end]
+    assert "VERSION" in fn, "Sync-InstallFiles no longer writes/checks VERSION"
+    # the warn-and-keep path must come before the throw
+    assert fn.index("Test-Path -LiteralPath (Join-Path $Dir 'VERSION')") < fn.index("throw $msg"), \
+        "manifest failure throws before the existing-install fallback"
+
+
 def test_no_update_flag_persists_marker():
     """-NoUpdate must be a real switch, and the opt-out must be sticky."""
     src = open(SETUP_PS1, encoding="utf-8").read()

@@ -52,7 +52,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ScriptVersion = '4'
+$ScriptVersion = '5'
 
 # --- helpers ---------------------------------------------------------------
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
@@ -182,7 +182,18 @@ function Sync-InstallFiles {
             Invoke-WebRequest -Uri $manifestUrl -OutFile $tmpManifest -UseBasicParsing -ErrorAction Stop
             $manifest = Get-Content -LiteralPath $tmpManifest -Raw -Encoding UTF8 | ConvertFrom-Json
         } catch {
-            throw "Could not fetch $manifestUrl : $($_.Exception.Message)"
+            # A first install with no manifest is fatal: there is nothing on
+            # disk to fall back on. An existing install is not -- warn and keep
+            # the files already there. Without this, -SchedulerOnly (whose whole
+            # job is "the files are already here, just register the tasks")
+            # died offline on a machine that had been installed before.
+            $msg = "Could not fetch $manifestUrl : $($_.Exception.Message)"
+            if (Test-Path -LiteralPath (Join-Path $Dir 'VERSION') -PathType Leaf) {
+                Write-Warn $msg
+                Write-Warn "keeping the existing install in $Dir (delete its VERSION file to make a missing manifest fatal again)."
+                return
+            }
+            throw $msg
         }
 
         $relFiles = @($manifest.python) + @($manifest.powershell) + @($manifest.data)
@@ -245,6 +256,14 @@ function Update-RepoClone {
         Write-Warn "no upstream tracking branch for $Dir; skipping update"
         return $false
     }
+    # @{u} is the upstream of the CURRENT branch, not of main. ff-only cannot
+    # lose work -- it refuses once HEAD has a commit of its own -- but a feature
+    # branch cut from origin/main does get moved, so name what is being updated.
+    $headBranch = (Invoke-Git @('-C', $Dir, 'rev-parse', '--abbrev-ref', 'HEAD')).Output.Trim()
+    $upstreamName = $upstream.Output.Trim()
+    if ($headBranch -notmatch '(^|/)(main|master)$') {
+        Write-Info "on '$headBranch'; fast-forwarding to its upstream '$upstreamName'."
+    }
     $r = Invoke-Git @('-C', $Dir, 'fetch', '--quiet')
     if ($r.ExitCode -ne 0) { Write-Warn "git fetch failed for $Dir; skipping update"; return $false }
 
@@ -273,12 +292,14 @@ function Update-RepoClone {
 
 function Invoke-Update {
     <#
-    Auto-update policy:
-      -Yolo or -Update   -> update
-      -NoUpdate          -> never update, and persist that choice
-      marker / env var   -> never update (sticky opt-out)
-      anything else      -> no update
-    The opt-out is sticky so you do not have to re-pass a switch every run.
+    Auto-update policy (highest precedence first):
+      EASY_HERMES_NO_UPDATE=1 -> never update; no flag overrides it
+      -Update                 -> update, and override a leftover marker
+      -Yolo                   -> update
+      -NoUpdate               -> never update, and persist that choice
+      marker / anything else  -> no update
+    The opt-out is sticky so you do not have to re-pass a switch every run;
+    -Update is the one-off escape hatch from it.
     #>
     if ($NoUpdate) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -287,8 +308,15 @@ function Invoke-Update {
         return
     }
     if (Test-UpdateDeclined) {
-        Write-Info "auto-update is off (marker file or EASY_HERMES_NO_UPDATE=1); skipping."
-        return
+        # Precedence: -Update wins over the marker, but never over the env var.
+        # Without this the marker was checked first, so the -Update hint printed
+        # above was false and the opt-out could only be cleared by hand.
+        if ($Update -and $env:EASY_HERMES_NO_UPDATE -ne '1') {
+            Write-Info "auto-update marker found, but -Update was passed; updating once anyway."
+        } else {
+            Write-Info "auto-update is off (marker file or EASY_HERMES_NO_UPDATE=1); skipping."
+            return
+        }
     }
     if (-not ($Yolo -or $Update)) {
         Write-Info "auto-update: not enabled for this run (use -Yolo or -Update)."
