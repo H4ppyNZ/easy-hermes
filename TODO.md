@@ -55,8 +55,9 @@ Still open under this item:
   entry, the `AGENTS.md`/`README.md`/`docs/ollama-selector.md` rows and the generated
   `Run-ModelSelectorTask.ps1` `.gitignore` entry; `tools/Configure-FreeModelFallbacks.ps1`
   deleted; the stale `ReviewNightlyTask.ps1` comment in `hermes-setup.ps1` reworded.
-- Six stale work-tree clones under the repos dir on feature branches already merged into
-  main. Delete or archive.
+- Resolved 2026-11-16: the three `work-*` clones under Documents/repos (gemini, novita,
+  ollama-cloud) deleted, the five merged/superseded local branches deleted, and the six
+  merged origin feature branches pruned. Only `main` remains locally and on origin.
 - "Omega" is undefined in this repo. If it means a named review/tidy pass (capability,
   performance/cost, observability/ux, accessibility, compliance axes from README), say which
   axes are in scope before starting.
