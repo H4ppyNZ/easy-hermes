@@ -52,7 +52,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ScriptVersion = '5'
+$ScriptVersion = '6'
 
 # --- helpers ---------------------------------------------------------------
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }

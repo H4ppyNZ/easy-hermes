@@ -7,6 +7,10 @@
 #   .\Set-NightlyTask.ps1
 #   .\Set-NightlyTask.ps1 -RunAt '3:00AM'
 #   .\Set-NightlyTask.ps1 -HermesHome 'C:\Users\OtherUser\AppData\Local\hermes'
+#
+# Extra tasks for the nightly run are NOT registered here. NightlyRestartTask.ps1
+# reads a gitignored extra-tasks.ps1 next to itself on every run, so editing that
+# file needs no re-registration. See docs/nightly-restart.md.
 
 param(
     [string]$HermesUser = $env:USERNAME,

@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "entry": "select-models.py",
   "note": "Files hermes-setup.ps1 syncs into the install dir for the one-liner path, and uses as the update set for clone installs. Regenerate with: python tools/gen_manifest.py",
   "python": [

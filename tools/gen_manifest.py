@@ -192,7 +192,7 @@ def main() -> int:
               sorted(set(unresolved_imports)), file=sys.stderr)
         return 1
     manifest = {
-        "version": 5,
+        "version": 6,
         "entry": ENTRY,
         "note": ("Files hermes-setup.ps1 syncs into the install dir for the "
                  "one-liner path, and uses as the update set for clone installs. "

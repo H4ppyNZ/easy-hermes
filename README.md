@@ -14,11 +14,11 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 
 | Command | What it does |
 |---------|--------------|
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -Yolo` | Full unattended install + auth + selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SelectorOnly` | Just run the model selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SchedulerOnly` | Register the daily scheduled task |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=6').Content)) -Yolo` | Full unattended install + auth + selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=6').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=6').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=6').Content)) -SelectorOnly` | Just run the model selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=6').Content)) -SchedulerOnly` | Register the daily scheduled task |
 
 ## Updating
 
@@ -98,10 +98,32 @@ not rewrite `config.yaml`.
 - `NightlyRestartTask.ps1` — nightly maintenance: hermes update, selector, gateway restart, extra tasks
 - `Set-NightlyTask.ps1` — registers a daily Windows scheduled task for the nightly restart (3 AM)
 - `Set-HermesCronMonitor.ps1` — registers a Hermes cron job that monitors the NightlyRestartTask event log (7:20 AM)
+- `docs/nightly-restart.md` — the nightly task's extra-tasks config (`extra-tasks.ps1`): schema, examples, troubleshooting
 - `MANIFEST.json` + `VERSION` — the file set the installer syncs (regenerate with `python tools/gen_manifest.py`)
 - `docs/installer-safety.md` — blast radius and safe re-run order for each step
 - `tools/` — operational helper scripts (manifest generator, repo health gate) with README
 - `README.md` — this file
+
+
+## Nightly extra tasks
+
+`NightlyRestartTask.ps1` step 4 runs host-specific maintenance after the gateway
+restart. Those tasks are not in the repo: they live in a gitignored
+`extra-tasks.ps1` next to the script (clone: `<repo>\extra-tasks.ps1`; one-liner:
+`%LOCALAPPDATA%\hermes\easy-hermes\extra-tasks.ps1`). Editing it takes effect the
+next night — the scheduled task does not need to be re-registered.
+
+```powershell
+# extra-tasks.ps1
+@(
+    @{ Name = 'bedrock updater'; Command = { & 'D:\Games\repoGaming\bedrockupdater.ps1' -Restart } },
+    @{ Name = 'log cleanup';    Path   = 'D:\scripts\cleanup.ps1'; Arguments = @('-KeepDays', 7) }
+)
+```
+
+A task whose script is missing is skipped; one that fails is logged and the run
+continues. See `docs/nightly-restart.md` for the full schema, the `-ExtraTasks`
+and `-ExtraTasksConfig` parameters, and troubleshooting.
 
 
 ## Gemini (Google AI Studio) polling (best-effort / unverified)

@@ -83,6 +83,24 @@ The selector targets `$HERMES_HOME` (default `%LOCALAPPDATA%\hermes`), i.e. the 
 profile's** `config.yaml`. Other profiles under `profiles/<name>/` are untouched unless
 `HERMES_HOME` is pointed at one.
 
+## Nightly extra tasks (`extra-tasks.ps1`)
+
+`NightlyRestartTask.ps1` step 4 runs host-specific maintenance. That list lives
+in `extra-tasks.ps1` next to the script, which is **gitignored and absent from
+`MANIFEST.json`**: an install or auto-update never creates, overwrites, or deletes
+it, and it is never pushed. One-liner installs read it from
+`%LOCALAPPDATA%\hermes\easy-hermes\extra-tasks.ps1`.
+
+Blast radius: the file is dot-sourced and its scriptblocks run as the
+scheduled-task user at 3 AM, with that user's rights. Anything the file can do,
+the nightly run can do. Keep it to data and scriptblocks, and never commit it.
+
+Failure behaviour: a task whose literal script path is missing is skipped with a
+log line; a task that throws is logged as an error and the run continues; a
+config file that fails to parse is logged as an error. None of these abort the
+nightly run, but the last two make the script exit `1`, which the Hermes cron
+monitor reports. Schema and examples: `docs/nightly-restart.md`.
+
 ## Verifying an edit before pushing
 
 - `.ps1`: clean parse under the Windows PowerShell 5.1 parser --

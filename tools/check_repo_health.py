@@ -8,6 +8,7 @@
 # 2. README.md advertised ?v=4 one-liners while $ScriptVersion / VERSION /
 #    MANIFEST.json all say 5. Bump to ?v=5 so testers stop hitting a cached
 #    older installer. Also correct the stale "69 tests" count -> 81.
+#    The expected ?v=N is derived from VERSION, so the check cannot go stale.
 
 import hashlib
 import os
@@ -83,15 +84,13 @@ def main():
     else:
         print("[ok] MANIFEST.json covers every providers.py module + hermes-ollama-selector.py")
 
-    readme = read_bytes("README.md").decode("utf-8")
-    if "?v=4" in readme:
-        failures.append("README.md still advertises ?v=4 one-liners")
-    elif "?v=5" not in readme:
-        failures.append("README.md has no ?v=5 one-liner")
-    else:
-        print("[ok] README.md one-liners use ?v=5")
-
     version = read_bytes("VERSION").decode().strip()
+    readme = read_bytes("README.md").decode("utf-8")
+    if ("?v=" + version) not in readme:
+        failures.append("README.md has no ?v=%s one-liner" % version)
+    else:
+        print("[ok] README.md one-liners use ?v=%s" % version)
+
     script = read_bytes("hermes-setup.ps1").decode("utf-8")
     m = re.search(r"\$ScriptVersion\s*=\s*'(\d+)'", script)
     if not m or m.group(1) != version:

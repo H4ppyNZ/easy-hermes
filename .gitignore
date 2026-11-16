@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 out/
 reports/
+
+# Host-specific extra tasks for NightlyRestartTask.ps1 (local paths).
+extra-tasks.ps1

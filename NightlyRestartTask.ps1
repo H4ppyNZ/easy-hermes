@@ -9,7 +9,8 @@ Runs, in order:
   2. select-models.py  (probe free models, apply the promotion gate, rewrite
      model.default + fallback_providers in config.yaml)
   3. hermes gateway restart  (so the new model/default is picked up)
-  4. Any extra tasks listed in $otherTasks
+  4. Any extra tasks from extra-tasks.ps1 (gitignored, next to this script)
+     and the -ExtraTasks parameter
 
 Everything is logged to the Windows Event Log under source 'NightlyRestartTask'.
 
@@ -40,6 +41,15 @@ Skip step 1 (hermes update). Useful for testing the model refresh alone.
 .PARAMETER DryRun
 Pass --dry-run to select-models.py: report the gate decision and write nothing.
 
+.PARAMETER ExtraTasks
+Extra script paths to run after the gateway restart. They are appended to the
+tasks loaded from extra-tasks.ps1.
+
+.PARAMETER ExtraTasksConfig
+Path to the extra-tasks config file. Defaults to extra-tasks.ps1 next to this
+script. That file is gitignored: host-specific paths belong there, never in the
+repo. See docs/nightly-restart.md.
+
 .EXAMPLE
 .\NightlyRestartTask.ps1
 Runs the full nightly sequence.
@@ -47,12 +57,25 @@ Runs the full nightly sequence.
 .EXAMPLE
 .\NightlyRestartTask.ps1 -SkipUpdate -DryRun
 Exercises the gate without updating Hermes or touching config.yaml.
+
+.EXAMPLE
+.\NightlyRestartTask.ps1 -ExtraTasks 'D:\Games\repoGaming\bedrockupdater.ps1'
+Runs the nightly sequence plus one extra script.
+
+.EXAMPLE
+# extra-tasks.ps1, next to this script and gitignored:
+#   @(
+#     @{ Name = 'bedrock updater'; Command = { & 'D:\Games\repoGaming\bedrockupdater.ps1' -Restart } }
+#   )
+.\NightlyRestartTask.ps1
+Loads the extra tasks from extra-tasks.ps1.
 #>
 
 param(
     [string]$Time = "05:00",
     [string]$HermesHome = "C:\Users\mattw\AppData\Local\hermes",
     [string[]]$ExtraTasks = @(),
+    [string]$ExtraTasksConfig = '',
     [switch]$SkipUpdate,
     [switch]$DryRun
 )
@@ -138,6 +161,157 @@ function Write-LogError {
     Write-Log -Message $Message -EntryType Error
 }
 
+# -- Extra tasks (step 4) ---------------------------------------------------------------
+# Host-specific extras come from a gitignored extra-tasks.ps1 next to this script
+# (override with -ExtraTasksConfig) and/or the -ExtraTasks parameter. Nothing is
+# hardcoded, so a push never carries another host's paths.
+#
+# The config file is dot-sourced, so an entry's scriptblock can close over
+# variables the file defines (e.g. one $tool path reused by several entries).
+# Keep it to data and scriptblocks: it runs as the scheduled-task user.
+#
+# Accepted shapes (the file outputs exactly one of these):
+#   array of entries:  @(
+#       @{ Name = 'bedrock updater'; Command = { & 'D:\Games\repoGaming\bedrockupdater.ps1' -Restart } },
+#       @{ Name = 'log cleanup'; Path = 'D:\scripts\cleanup.ps1'; Arguments = @('-KeepDays', 7) }
+#   )
+#   name -> entry map: @{ 'bedrock updater' = { & 'D:\...\bedrockupdater.ps1' -Restart } }
+#   a single entry:    @{ Name = 'x'; Command = { ... } }
+# Entry keys: Name (optional), Command (scriptblock) or Path (+ Arguments),
+# Enabled (default $true). A hashtable carrying Command/Path is one entry; any
+# other hashtable is treated as a name -> entry map.
+function Get-ScriptblockTarget {
+    # Best-effort literal path of the first command in a scriptblock. Returns
+    # $null for a variable/expression target, which cannot be validated up front.
+    param([scriptblock]$Command)
+    $text = "$Command".Trim()
+    if (-not $text) { return $null }
+    if ($text.StartsWith('&')) { $text = $text.Substring(1).Trim() }
+    if (-not $text) { return $null }
+    $first = $text[0]
+    if ($first -eq [char]39 -or $first -eq [char]34) {
+        $end = $text.IndexOf($first, 1)
+        if ($end -gt 1) { return $text.Substring(1, $end - 1) }
+        return $null
+    }
+    if ($first -eq '$' -or $first -eq '(') { return $null }
+    $match = [regex]::Match($text, '^\S+')
+    if ($match.Success) { return $match.Value }
+    return $null
+}
+
+function Test-LiteralPathTarget {
+    # A target that is a variable or subexpression cannot be checked with
+    # Test-Path; leave those to run and report a real failure.
+    param([string]$Target)
+    if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
+    return -not ($Target[0] -eq '$' -or $Target[0] -eq '(')
+}
+
+function Get-ExtraTasksConfigPath {
+    # Default: extra-tasks.ps1 next to this script. -ExtraTasksConfig wins.
+    # A relative override is resolved against the current directory.
+    param(
+        [string]$ExtraTasksConfig,
+        [string]$ScriptDir
+    )
+    $path = if ($ExtraTasksConfig) { $ExtraTasksConfig } else { Join-Path $ScriptDir 'extra-tasks.ps1' }
+    if ($path -and -not [System.IO.Path]::IsPathRooted($path)) {
+        $path = Join-Path (Get-Location).Path $path
+    }
+    return $path
+}
+
+function Resolve-ExtraTasks {
+    <#
+    Normalizes config data (and the -ExtraTasks paths) into a list of
+    @{ Name; Command; Path; Arguments; ConfigDir }. Disabled entries and entries
+    with neither Command nor Path are dropped with a log line, so step 4 never
+    aborts the nightly run.
+    #>
+    param(
+        $Data,
+        [string]$ConfigDir = '',
+        [string[]]$ExtraTasks = @()
+    )
+    $tasks = @()
+    $items = @()
+
+    if ($null -ne $Data) {
+        if ($Data -is [string] -or $Data -is [scriptblock]) {
+            $items += ,@{ Name = $null; Entry = $Data }
+        } elseif ($Data -is [System.Collections.IDictionary]) {
+            if ($Data.Contains('Command') -or $Data.Contains('Path')) {
+                $items += ,@{ Name = $null; Entry = $Data }
+            } else {
+                foreach ($key in @($Data.Keys)) {
+                    $items += ,@{ Name = "$key"; Entry = $Data[$key] }
+                }
+            }
+        } else {
+            foreach ($entry in @($Data)) {
+                $items += ,@{ Name = $null; Entry = $entry }
+            }
+        }
+    }
+
+    foreach ($item in $items) {
+        $entry = $item.Entry
+        $name = $item.Name
+        $command = $null
+        $path = $null
+        $argList = @()
+        $enabled = $true
+
+        if ($entry -is [scriptblock]) {
+            $command = $entry
+        } elseif ($entry -is [string]) {
+            $path = $entry
+        } elseif ($entry -is [System.Collections.IDictionary]) {
+            if ($null -ne $entry['Enabled']) { $enabled = [bool]$entry['Enabled'] }
+            if ($entry['Name']) { $name = "$($entry['Name'])" }
+            if ($entry['Command'] -is [scriptblock]) { $command = $entry['Command'] }
+            if (-not $command -and $entry['Path']) { $path = "$($entry['Path'])" }
+            if ($entry['Arguments']) { $argList = @($entry['Arguments']) | ForEach-Object { "$_" } }
+        } else {
+            Write-Log "Extra task entry of type $($entry.GetType().FullName) is not supported; skipped."
+            continue
+        }
+
+        if (-not $name) {
+            if ($path) { $name = Split-Path $path -Leaf } else { $name = 'extra task' }
+        }
+        if (-not $enabled) {
+            Write-Log "Extra task '$name' is disabled; skipped."
+            continue
+        }
+        if (-not $command -and -not $path) {
+            Write-Log "Extra task '$name' has neither Command nor Path; skipped."
+            continue
+        }
+        $tasks += @{
+            Name      = $name
+            Command   = $command
+            Path      = $path
+            Arguments = $argList
+            ConfigDir = $ConfigDir
+        }
+    }
+
+    foreach ($extra in @($ExtraTasks)) {
+        if (-not $extra) { continue }
+        $tasks += @{
+            Name      = (Split-Path $extra -Leaf)
+            Command   = $null
+            Path      = "$extra"
+            Arguments = @()
+            ConfigDir = $ConfigDir
+        }
+    }
+    return $tasks
+}
+
+
 # -- Resolve paths (fail loudly rather than silently doing nothing) --
 $pythonPath   = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
 $selectorPy   = Join-Path $PSScriptRoot 'select-models.py'
@@ -193,35 +367,86 @@ if ($DryRun) {
 }
 
 # -- Step 4: Other tasks --
-# Host-specific extra tasks are NOT hardcoded here. Pass them via -ExtraTasks
-# (array of script paths) or populate $otherTasks below; missing scripts are
-# skipped rather than aborting the run.
-$otherTasks = @()
-if ($ExtraTasks) {
-    foreach ($t in $ExtraTasks) {
-        $otherTasks += @{ Name = (Split-Path $t -Leaf); Command = { & $t } }
+# Extras come from a gitignored extra-tasks.ps1 next to this script (override
+# with -ExtraTasksConfig) and/or -ExtraTasks. Nothing host-specific is
+# hardcoded here, so a push never carries another machine's paths.
+$extraTasksPath = Get-ExtraTasksConfigPath -ExtraTasksConfig $ExtraTasksConfig -ScriptDir $PSScriptRoot
+$extraTasksDir = if ($extraTasksPath) { Split-Path -Parent $extraTasksPath } else { $PSScriptRoot }
+
+$configData = $null
+if ($extraTasksPath -and (Test-Path -LiteralPath $extraTasksPath -PathType Leaf)) {
+    Write-Log "Loading extra tasks from $extraTasksPath"
+    try {
+        # Dot-sourced at script scope so an entry's scriptblock can see
+        # variables the config defines (see the note above Resolve-ExtraTasks).
+        $configData = . $extraTasksPath
+    } catch {
+        Write-LogError "Extra tasks config failed to load: $extraTasksPath -- $_"
+    }
+} else {
+    Write-Log "No extra tasks config at $extraTasksPath (step 4 uses -ExtraTasks only)."
+}
+
+function Invoke-ExtraTasks {
+    <#
+    Runs the normalized extra tasks. A task whose literal target is missing is
+    skipped with a log line; a task that throws is logged as an error. Neither
+    aborts the nightly run.
+    #>
+    param($Tasks)
+
+    Write-Log "Step 4/4: Running $(@($Tasks).Count) additional task(s)..."
+    $i = 0
+    foreach ($task in @($Tasks)) {
+        $i++
+        # Skip a task whose literal target is missing instead of aborting the
+        # run. A variable/expression target is not validated; it runs and a
+        # real failure is caught below.
+        $target = $null
+        $pushLocation = $false
+        $taskDir = if ($task.ConfigDir) { $task.ConfigDir } else { (Get-Location).Path }
+        if ($task.Command) {
+            $raw = Get-ScriptblockTarget -Command $task.Command
+            if ($raw -and (Test-LiteralPathTarget -Target $raw)) { $target = $raw }
+        } elseif ($task.Path) {
+            $target = $task.Path
+        }
+        if ($target) {
+            if (-not [System.IO.Path]::IsPathRooted($target)) {
+                $target = Join-Path $taskDir $target
+                $pushLocation = [bool]$task.Command
+            }
+            if (-not (Test-Path -LiteralPath $target)) {
+                Write-Log "Task $i ($($task.Name)): SKIPPED (script not found: $target)"
+                continue
+            }
+        }
+
+        Write-Log "Invoking task $i/$(@($Tasks).Count): $($task.Name)"
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            if ($pushLocation) { Push-Location -LiteralPath $taskDir }
+            try {
+                if ($task.Command) {
+                    $output = & $task.Command 2>&1 | Out-String
+                } else {
+                    $output = & $task.Path @($task.Arguments) 2>&1 | Out-String
+                }
+                Write-Log "Task $i ($($task.Name)) output: $output"
+            } finally {
+                if ($pushLocation) { Pop-Location }
+            }
+        } catch {
+            Write-LogError "Task $i ($($task.Name)) failed: $_"
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
     }
 }
 
-Write-Log "Step 4/4: Running $($otherTasks.Count) additional task(s)..."
-$i = 0
-foreach ($task in $otherTasks) {
-    $i++
-    # Basic path validation for script-based tasks.
-    $target = $null
-    try { $target = ($task.Command.ToString() -replace '.*&\s*', '').Trim().Trim([char[]]@('"', "'")) } catch { }
-    if ($target -and -not (Test-Path -LiteralPath $target)) {
-        Write-Log "Task $i ($($task.Name)): SKIPPED (script not found: $target)"
-        continue
-    }
-    Write-Log "Invoking task $i/$($otherTasks.Count): $($task.Name)"
-    try {
-        $output = & $task.Command 2>&1 | Out-String
-        Write-Log "Task $i ($($task.Name)) output: $output"
-    } catch {
-        Write-LogError "Task $i ($($task.Name)) failed: $_"
-    }
-}
+$otherTasks = Resolve-ExtraTasks -Data $configData -ConfigDir $extraTasksDir -ExtraTasks $ExtraTasks
+Invoke-ExtraTasks -Tasks $otherTasks
 
 if ($script:HadError) {
     Write-Log "=== Nightly restart COMPLETED WITH ERRORS ==="
