@@ -6,7 +6,7 @@ Windows-only wrapper: installer + free-model selector + scheduled tasks + nightl
 
 Core: `hermes-setup.ps1` (installer), `select-models.py` (CLI entry point; sole writer of model.default + fallback_providers; implementation in `selector/`), `hermes-ollama-selector.py` (local Ollama, opt-in), `providers.py` (registry), `release_dates.py`, `safe_url.py`, `atomic_io.py`, `chain_delta.py`.
 Pollers: `pollers/poll_<provider>.py` + `poll_base.py` + `poll_template.py`.
-PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (87, pure, no network).
+PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (91, pure, no network).
 
 ## PowerShell scripts
 
@@ -17,8 +17,13 @@ PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (87, pure, no 
 | `Set-EnvKeys.ps1` | Writes provider keys to User env (secure prompt) | (none) |
 | `Set-NightlyTask.ps1` | Registers 3 AM nightly task | `-RunAt -HermesHome` |
 | `Set-HermesCronMonitor.ps1` | Registers 7:20 AM Hermes cron monitor | `-Schedule -Deliver` |
-| `NightlyRestartTask.ps1` | nightly: update → selector → gateway restart → extras | `-SkipUpdate -DryRun -ExtraTasks` |
+| `NightlyRestartTask.ps1` | nightly: update → selector → gateway restart → extras | `-SkipUpdate -DryRun -ExtraTasks -ExtraTasksConfig` |
 | `MANIFEST.json` / `VERSION` | File set the installer syncs; regenerate with `python tools/gen_manifest.py` | — |
+
+Nightly step-4 extras come from a gitignored `extra-tasks.ps1` next to `NightlyRestartTask.ps1`
+(one-liner installs: `%HermesHome%\easy-hermes\extra-tasks.ps1`); `-ExtraTasksConfig` overrides
+the path. Never commit it and never add it to `MANIFEST.json` -- schema and examples in
+`docs/nightly-restart.md`.
 
 ## Install + auto-update
 
