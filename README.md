@@ -14,11 +14,11 @@ This installs Hermes, authenticates (one browser prompt), runs the live model se
 
 | Command | What it does |
 |---------|--------------|
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=4').Content)) -Yolo` | Full unattended install + auth + selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=4').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=4').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=4').Content)) -SelectorOnly` | Just run the model selector |
-| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=4').Content)) -SchedulerOnly` | Register the daily scheduled task |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -Yolo` | Full unattended install + auth + selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -Yolo -Model inclusionai/ling-3.1-flash` | Yolo with a pinned model |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SkipInstall` | Skip install (hermes already on PATH) |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SelectorOnly` | Just run the model selector |
+| `& ([scriptblock]::Create((iwr -useb 'https://raw.githubusercontent.com/H4ppyNZ/easy-hermes/main/hermes-setup.ps1?v=5').Content)) -SchedulerOnly` | Register the daily scheduled task |
 
 ## Updating
 
@@ -160,7 +160,7 @@ Output: `out/ollama-cloud.json`.
 - **Phase 2 complete and pushed to `main`.** All 5 provider pollers, plus
   `providers.py` (registry) and `select-models.py` (central selector), are
   merged.
-- **69 tests pass** (`python -m pytest -q`, no network).
+- **87 tests pass** (`python -m pytest -q`, no network).
 
 ## Environment / API keys
 
@@ -210,7 +210,7 @@ now reports 3.11.15.
 
 ## Development / testing
 
-- Tests: `python -m pytest -q` (69 tests, no network)
+- Tests: `python -m pytest -q` (87 tests, no network)
 - Selector preview: `python select-models.py --dry-run`
 - Selector preview (JSON): `python select-models.py --dry-run --json`
 - Apply: `python select-models.py`

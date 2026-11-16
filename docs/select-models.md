@@ -196,5 +196,5 @@ similar base URLs.
 ## Tests
 
 ```powershell
-python -m pytest -q   # 69 tests, no network
+python -m pytest -q   # 87 tests, no network
 ```

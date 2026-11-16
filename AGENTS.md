@@ -6,7 +6,7 @@ Windows-only wrapper: installer + free-model selector + scheduled tasks + nightl
 
 Core: `hermes-setup.ps1` (installer), `select-models.py` (CLI entry point; sole writer of model.default + fallback_providers; implementation in `selector/`), `hermes-ollama-selector.py` (local Ollama, opt-in), `providers.py` (registry), `release_dates.py`, `safe_url.py`, `atomic_io.py`, `chain_delta.py`.
 Pollers: `pollers/poll_<provider>.py` + `poll_base.py` + `poll_template.py`.
-PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (69, pure, no network).
+PowerShell tasks: see table below. Docs: `docs/`. Tests: `tests/` (87, pure, no network).
 
 ## PowerShell scripts
 

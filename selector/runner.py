@@ -209,6 +209,33 @@ def _process_provider(slug, cfg, *, ranking, reasoning_mode, top_n, args, banned
                                        "passed": passed_here}
 
 
+def _nous_cred_state(cred, now=None):
+    """Classify a pooled Nous credential for probing.
+
+    Returns ("ok", note) or ("expired", note). Only ``expires_at`` decides;
+    a rate-limit cooldown (``last_error_reset_at`` / ``failure_reason``) is NOT
+    treated as unusable, because the probe cache still holds live pass/fail data
+    for those models and the token rotates back on its own. An expired access
+    token is the case that makes every probe meaningless, so it is reported.
+    ``now`` is injectable for tests.
+    """
+    import datetime as _dt
+
+    if now is None:
+        now = _dt.datetime.now(_dt.timezone.utc)
+    exp_raw = cred.get("expires_at")
+    if not exp_raw:
+        return "ok", "no expires_at recorded"
+    try:
+        exp = _dt.datetime.fromisoformat(str(exp_raw))
+    except ValueError:
+        return "ok", f"unparseable expires_at ({exp_raw!r}); treating as usable"
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=_dt.timezone.utc)
+    if now >= exp:
+        return "expired", f"token expired at {exp.isoformat()}"
+    return "ok", "token usable"
+
 def main():
     ap = argparse.ArgumentParser(description="Central free-model selector (Phase 2)")
     ap.add_argument("--dry-run", action="store_true", help="Preview only, write nothing")
@@ -282,6 +309,12 @@ def main():
 
     # Load Nous Portal credential from Hermes auth store into env (if not already set),
     # so Nous models can be probed like any other provider.
+    #
+    # A benched token is still an access_token on disk, and validate_key() does not
+    # reject a 429, so without this check the selector keeps using it: every probe
+    # silently falls back to stale cache entries and no Nous model is re-verified
+    # until someone notices. Skip probing outright and say why instead.
+    nous_auth_state = None
     if not os.environ.get("NOUS_API_KEY"):
         try:
             import json as _j
@@ -294,9 +327,15 @@ def main():
                     _tok = _c.get("access_token") if isinstance(_c, dict) else None
                     if _tok:
                         os.environ["NOUS_API_KEY"] = str(_tok).strip()
+                        nous_auth_state = _nous_cred_state(_c)
                         break
         except Exception:
-            pass
+            nous_auth_state = ("unreadable", "could not read auth.json")
+
+    if nous_auth_state is not None and nous_auth_state[0] == "expired":
+        print(f"nous: {nous_auth_state[0]} -- {nous_auth_state[1]}")
+        print("nous: access token expired; skipping probes; chain/default kept as-is.")
+        print("nous: run 'hermes auth refresh nous' or 'hermes setup --portal' to fix.")
 
     # --- ban list management ---
     banned = load_banned()

@@ -61,7 +61,7 @@ $ErrorActionPreference = "Stop"
 $eventSource = 'NightlyRestartTask'
 $script:HadError = $false
 
-# ── Child-process encoding ─────────────────────────────────────────────────────────────
+# -- Child-process encoding -------------------------------------------------------------
 # MUST be set before any python child. Without it the child inherits the console code page
 # (cp1252) for its stdout/stderr pipes, and select-models.py's box-drawing characters
 # (U+2500 in its PROMOTION GATE banner) raise UnicodeEncodeError at print time.
@@ -72,7 +72,7 @@ $script:HadError = $false
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
-# ── Native-command helper ──────────────────────────────────────────────────────────────
+# -- Native-command helper --------------------------------------------------------------
 # $ErrorActionPreference='Stop' + PS 5.1 turns ANY stderr byte from a native process into a
 # terminating NativeCommandError, even when the process succeeded. That both loses the real
 # exit code ($LASTEXITCODE reads -1 in the catch) and truncates the error to the first line

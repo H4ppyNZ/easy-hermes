@@ -6,7 +6,7 @@
   (`poll_openrouter.py`, `poll_nvidia.py`, `poll_gemini.py`,
   `poll_ollama_cloud.py`, `poll_novita.py`) are merged, along with
   `providers.py` (registry) and `select-models.py` (central selector).
-- **69 tests pass** (`python -m pytest -q`, no network).
+- **87 tests pass** (`python -m pytest -q`, no network).
 - **Keys already set** in Windows user env (`HKEY_CURRENT_USER\Environment`),
   not shell env: `NVIDIA_API_KEY`, `GOOGLE_API_KEY`, `NOVITA_API_KEY`,
   `OLLAMA_API_KEY`. `OPENROUTER_API_KEY` is optional (not set).
@@ -17,7 +17,7 @@
 
 ### Useful commands
 
-- Tests: `python -m pytest -q` (69 tests, no network)
+- Tests: `python -m pytest -q` (87 tests, no network)
 - Selector preview: `python select-models.py --dry-run`
 - Selector preview (JSON): `python select-models.py --dry-run --json`
 - Apply: `python select-models.py`
