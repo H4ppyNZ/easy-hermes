@@ -7,4 +7,4 @@ one-off / on-demand tools for fixing specific problems on a Windows Hermes host.
 
 `gen_manifest.py` regenerates `MANIFEST.json` (the installer file set);
 `check_repo_health.py` is the pre-push gate (ASCII-only .ps1, manifest coverage,
-`?v=N` consistency, stale test counts).
+`?v=N` staleness if present, stale test counts).

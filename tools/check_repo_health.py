@@ -6,9 +6,9 @@
 #    as CP1252, and a mangled multi-byte char can terminate a string literal.
 #    Already fixed by hand in the working tree; keep it that way.
 # 2. README.md advertised ?v=4 one-liners while $ScriptVersion / VERSION /
-#    MANIFEST.json all say 5. Bump to ?v=5 so testers stop hitting a cached
-#    older installer. Also correct the stale "69 tests" count -> 81.
-#    The expected ?v=N is derived from VERSION, so the check cannot go stale.
+#    MANIFEST.json all say 5 -- a tester following the README hit a cached older
+#    installer. Now: a ?v=N query is optional (the README uses a bare URL), but
+#    one that IS present must match VERSION, so the stale-pinned case still fails.
 
 import hashlib
 import os
@@ -86,10 +86,17 @@ def main():
 
     version = read_bytes("VERSION").decode().strip()
     readme = read_bytes("README.md").decode("utf-8")
-    if ("?v=" + version) not in readme:
-        failures.append("README.md has no ?v=%s one-liner" % version)
+    # Relaxed: a version query is optional (the current README uses a bare URL so
+    # it always resolves to current main), but a query that IS present must not
+    # contradict VERSION -- that is the stale-?v=5 failure this check exists for.
+    pinned = sorted(set(re.findall(r"hermes-setup\.ps1\?v=(\d+)", readme)))
+    stale = [v for v in pinned if v != version]
+    if stale:
+        failures.append("README.md pins stale ?v=%s (VERSION is %s)" % (stale, version))
+    elif pinned:
+        print("[ok] README.md ?v=%s matches VERSION" % version)
     else:
-        print("[ok] README.md one-liners use ?v=%s" % version)
+        print("[ok] README.md one-liners are unversioned (always current main)")
 
     script = read_bytes("hermes-setup.ps1").decode("utf-8")
     m = re.search(r"\$ScriptVersion\s*=\s*'(\d+)'", script)

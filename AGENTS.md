@@ -53,7 +53,7 @@ git add -A; git commit -m "..."; git push origin main
 
 - ASCII-only `.ps1` (PS 5.1 cp1252 issue); `.ps1` needs CRLF; `param()` must be first statement; verify with PS 5.1 parser.
 - Backup `config.yaml` before selector runs; selector rewrites it wholesale (atomic, `.yaml.bak`).
-- Push after every change (scheduled tasks point at repo files); bump `?v=N` in README one-liners for fixes.
+- Push after every change (scheduled tasks point at repo files). README one-liners use a bare raw URL (always current `main`); if you add a `?v=N`, it must match `VERSION`.
 - After cutting a module: `grep -rn old-name` whole tree incl. comments/docs.
 - Don't commit generated artifacts (`__pycache__/`, `out/`, `reports/`).
 

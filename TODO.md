@@ -38,7 +38,7 @@ Fix shape (not yet implemented):
 Applied in this pass (uncommitted, on `main`):
 - `tools/check_repo_health.py` added: asserts every .ps1 is pure ASCII, MANIFEST.json covers
   every `providers.py` registry module plus the spec-loaded `hermes-ollama-selector.py`,
-  README one-liners carry the current `?v=N`, and `$ScriptVersion` == VERSION. Run it with
+  README one-liners carry no stale `?v=N` (the query is optional), and `$ScriptVersion` == VERSION. Run it with
   `python tools/check_repo_health.py` before every push.
 - `NightlyRestartTask.ps1`: replaced two U+2500 box-drawing comment rules with ASCII `--`
   (the repo's own rule is ASCII-only .ps1 source; 381 non-ASCII bytes were present).
